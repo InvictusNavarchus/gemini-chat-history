@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.0
+// @version      0.2.1
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -161,8 +161,9 @@
             return false; // Indicate failure
         }
         // Prevent adding entry if URL is still the base app URL or invalid
-        if (url === GEMINI_APP_URL || !url.includes('/app/c_')) {
-            warn("Attempted to add entry with base app URL or invalid chat URL. Skipping.", url);
+        const chatUrlPattern = /^https:\/\/gemini\.google\.com\/app\/[a-f0-9]+$/;
+        if (!chatUrlPattern.test(url)) {
+            warn(`Attempted to add entry with invalid chat URL pattern "${url}". Skipping.`);
             return false; // Indicate failure
         }
 
@@ -207,80 +208,130 @@
         return null;
     }
 
+    // --- Global scope variable to hold the secondary observer ---
+    let titleObserver = null;
+
+    // --- observeSidebarForNewChat ---
     function observeSidebarForNewChat() {
         const targetSelector = 'conversations-list[data-test-id="all-conversations"]';
         const conversationListElement = document.querySelector(targetSelector);
 
         if (!conversationListElement) {
             warn(`Could not find conversation list element ("${targetSelector}") to observe. Aborting observation setup.`);
-            isNewChatPending = false; // Reset flag if we can't observe
+            isNewChatPending = false; // Reset flag
             pendingModelName = null;
             return;
         }
 
-        log("Found conversation list element. Setting up sidebar observer...");
+        log("Found conversation list element. Setting up MAIN sidebar observer...");
 
-        // Disconnect previous observer if exists
+        // Disconnect previous observers if they exist
         if (sidebarObserver) {
-            log("Disconnecting previous sidebar observer.");
-            sidebarObserver.disconnect();
-            sidebarObserver = null;
+             log("Disconnecting previous MAIN sidebar observer.");
+             sidebarObserver.disconnect();
+             sidebarObserver = null;
+        }
+         if (titleObserver) {
+            // If a title observer is somehow still active when we start a new chat observation,
+            // disconnect it to prevent multiple lingering observers.
+            warn("Disconnecting lingering TITLE observer from previous attempt.");
+            titleObserver.disconnect();
+            titleObserver = null;
         }
 
-        sidebarObserver = new MutationObserver((mutationsList, observer) => {
-            log(`Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
-            const currentUrl = window.location.href;
-            log(`Current URL inside observer: ${currentUrl}`);
 
-            // Check if the URL has changed from /app to a specific chat URL
-            if (currentUrl === GEMINI_APP_URL || !currentUrl.includes('/app/c_')) {
-                log("URL is still base or invalid. Waiting for URL change before processing sidebar mutations.");
-                return; // Ignore sidebar changes until URL is correct
+        sidebarObserver = new MutationObserver((mutationsList, mainObserver) => {
+            log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
+            const currentUrl = window.location.href;
+            log(`Current URL inside MAIN observer: ${currentUrl}`);
+
+            const chatUrlPattern = /^https:\/\/gemini\.google\.com\/app\/[a-f0-9]+$/;
+            if (!chatUrlPattern.test(currentUrl)) {
+                log(`URL "${currentUrl}" does not match the expected chat pattern. Waiting...`);
+                return; // URL still not a valid chat URL
             }
 
-            log("URL check passed. Processing mutations...");
+            log("URL check passed (matches chat pattern). Processing mutations to find NEW conversation item...");
             for (const mutation of mutationsList) {
-                //log("Mutation details:", mutation); // Uncomment for extreme detail
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                    log(`Mutation type is childList with ${mutation.addedNodes.length} added node(s).`);
                     for (const node of mutation.addedNodes) {
-                        //log("Checking added node:", node); // Uncomment for extreme detail
-                        if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
-                            log("Found added node matching 'conversation-items-container'. Searching for conversation item inside...");
+                         if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
                             const conversationItem = node.querySelector('div[data-test-id="conversation"]');
-                            if (conversationItem) {
-                                log("Found conversation item (div[data-test-id='conversation']) inside container.");
-                                const title = extractTitleFromSidebarItem(conversationItem);
-                                const timestamp = getCurrentJakartaTimestamp();
-                                const url = window.location.href; // Re-check URL just in case
+                            if (conversationItem && isNewChatPending) {
+                                log("Found NEW conversation item container. Preparing to wait for title...");
 
-                                log("Checking conditions for adding history entry:", { title, pendingModelName, url });
+                                // --- Stage 1 Complete: Found the Item ---
+                                // Disconnect the MAIN observer
+                                log("Disconnecting MAIN sidebar observer.");
+                                mainObserver.disconnect();
+                                sidebarObserver = null;
 
-                                if (title && pendingModelName && url !== GEMINI_APP_URL) {
-                                    log("All conditions met. Attempting to add history entry...");
-                                    const added = addHistoryEntry(timestamp, url, title, pendingModelName);
+                                // --- Stage 2: Wait for the Title (Context Capture) ---
+                                log(`Starting TITLE observation process for specific item:`, conversationItem);
+                                const timestampCaptured = getCurrentJakartaTimestamp();
+                                const urlCaptured = currentUrl; // Capture the specific URL for this chat item
+                                const modelCaptured = pendingModelName;
 
-                                    if (added) {
-                                        // --- Cleanup ---
-                                        log("History entry added successfully. Cleaning up.");
-                                        isNewChatPending = false;
-                                        pendingModelName = null;
-                                        observer.disconnect(); // Stop observing
-                                        sidebarObserver = null; // Clear the observer instance variable
-                                        log("Observer disconnected. Stopped watching sidebar for this new chat.");
-                                        return; // Exit after handling the first new chat item
-                                    } else {
-                                        warn("addHistoryEntry indicated failure (e.g., duplicate or validation). Not disconnecting observer yet.");
-                                        // Might need more complex logic here if partial saves are possible, but for now we assume addHistoryEntry handles skips cleanly.
-                                        // Resetting flags might be risky if addHistoryEntry fails unexpectedly.
-                                        // isNewChatPending = false; // Consider if resetting flags here is safe
-                                        // pendingModelName = null;
+                                // Clear pending flags
+                                isNewChatPending = false;
+                                pendingModelName = null;
+                                log(`Cleared isNewChatPending flag. Waiting for title associated with URL: ${urlCaptured}`);
+
+                                // --- Function to attempt capture, including URL check ---
+                                function attemptTitleCaptureAndSave(item, expectedUrl, timestamp, model) {
+                                    // *** ADDED URL CHECK ***
+                                    // Check if we are still on the page this observer was created for.
+                                    if (window.location.href !== expectedUrl) {
+                                        warn(`URL changed from "${expectedUrl}" to "${window.location.href}" while waiting for title. Disconnecting TITLE observer.`);
+                                        if (titleObserver) {
+                                            titleObserver.disconnect();
+                                            titleObserver = null;
+                                        }
+                                        return true; // Return true to indicate we should stop trying (observer is disconnected)
                                     }
-                                } else {
-                                    warn("Sidebar item added, but failed condition check (missing title, pending model, or wrong URL).", { titleExists: !!title, modelPending: !!pendingModelName, urlValid: url !== GEMINI_APP_URL });
+                                    // *** END ADDED URL CHECK ***
+
+                                    const title = extractTitleFromSidebarItem(item);
+                                    log(`TITLE Check (URL: ${expectedUrl}): Extracted title: "${title}"`);
+                                    if (title) { // Title is present and non-empty
+                                        log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
+                                        if (titleObserver) {
+                                            log("Disconnecting TITLE observer after successful capture.");
+                                            titleObserver.disconnect();
+                                            titleObserver = null;
+                                        }
+                                        addHistoryEntry(timestamp, expectedUrl, title, model); // Use expectedUrl
+                                        return true; // Indicate success, stop trying
+                                    }
+                                    return false; // Title not ready yet, continue trying
                                 }
-                            } else {
-                                log("Did not find conversation item (div[data-test-id='conversation']) inside the added container.");
+
+                                // Initial check right away
+                                if (attemptTitleCaptureAndSave(conversationItem, urlCaptured, timestampCaptured, modelCaptured)) {
+                                     log("Title capture process concluded on initial check (found title or URL changed).");
+                                     return; // Already done or aborted
+                                }
+
+                                // Set up the title observer if title not present initially AND URL still matches
+                                titleObserver = new MutationObserver((titleMutations, obs) => {
+                                    log("TITLE Observer Callback Triggered.");
+                                    // Re-check the title AND the URL on any mutation within the item
+                                    if (attemptTitleCaptureAndSave(conversationItem, urlCaptured, timestampCaptured, modelCaptured)) {
+                                        log("Title capture process concluded via TITLE observer callback (found title or URL changed).");
+                                        // Disconnect happens within the function
+                                    } else {
+                                         log("Title observer triggered, but title still not found/empty or URL mismatch.");
+                                    }
+                                });
+
+                                titleObserver.observe(conversationItem, {
+                                    childList: true,
+                                    subtree: true,
+                                    characterData: true
+                                });
+                                log(`TITLE observer is now active, watching specific item associated with URL: ${urlCaptured} (no timeout).`);
+
+                                return; // Stop processing further mutations in the *main* observer callback
                             }
                         }
                     }
@@ -289,10 +340,10 @@
         });
 
         sidebarObserver.observe(conversationListElement, {
-            childList: true, // Watch for direct children being added/removed
-            subtree: true    // Watch deeper descendants as well
+            childList: true,
+            subtree: true
         });
-        log("Sidebar observer is now active.");
+        log("MAIN sidebar observer is now active.");
     }
 
 
