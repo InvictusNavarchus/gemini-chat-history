@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.3
+// @version      0.2.4
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -420,9 +420,9 @@
                 return; // Already done or aborted
             }
 
-            // Set up a modified title observer that first looks for the title element, then for text
-            STATE.titleObserver = new MutationObserver(() => {
-                Logger.log("TITLE Observer Callback Triggered.");
+            // Set up a more comprehensive observer that watches EVERYTHING
+            STATE.titleObserver = new MutationObserver((mutations) => {
+                Logger.log(`TITLE Observer Callback Triggered. ${mutations.length} mutations.`);
                 
                 // First, check if URL still matches
                 if (window.location.href !== expectedUrl) {
@@ -432,35 +432,53 @@
                     return;
                 }
                 
-                // Look for the title element
-                const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
-                if (!titleElement) {
-                    Logger.log("Title element still not present in the DOM. Waiting...");
-                    return;
-                }
+                // Directly look for and extract the title text from anywhere inside the conversation item
+                const titleElements = conversationItem.querySelectorAll('.conversation-title.gds-body-m');
+                Logger.log(`Found ${titleElements.length} potential title elements in the conversation item.`);
                 
-                // Title element exists - now check if it has text content
-                if (titleElement.firstChild && titleElement.firstChild.nodeType === Node.TEXT_NODE) {
-                    const title = titleElement.firstChild.textContent.trim();
-                    if (title) {
-                        Logger.log(`Title found for ${expectedUrl}: "${title}". Adding history entry.`);
+                for (const titleElement of titleElements) {
+                    // Check if this title element has direct text content
+                    if (titleElement.childNodes) {
+                        for (const node of titleElement.childNodes) {
+                            if (node.nodeType === Node.TEXT_NODE) {
+                                const text = node.textContent.trim();
+                                if (text) {
+                                    Logger.log(`Found text node with content: "${text}"`);
+                                    // We found a non-empty text node - use it as the title
+                                    Logger.log(`Title found for ${expectedUrl}: "${text}". Adding history entry.`);
+                                    STATE.titleObserver.disconnect();
+                                    STATE.titleObserver = null;
+                                    HistoryManager.addHistoryEntry(timestamp, expectedUrl, text, model);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // If we couldn't find direct text node but the element has textContent, use that as fallback
+                    const fullText = titleElement.textContent.trim();
+                    if (fullText) {
+                        Logger.log(`Using textContent as fallback: "${fullText}"`);
                         STATE.titleObserver.disconnect();
                         STATE.titleObserver = null;
-                        HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                        HistoryManager.addHistoryEntry(timestamp, expectedUrl, fullText, model);
                         return;
                     }
                 }
                 
-                Logger.log("Title element found but text content not ready yet. Waiting...");
+                Logger.log("No title with text found yet. Continuing to observe...");
             });
 
-            // Observe for any changes to the conversation item and its descendants
+            // Observe EVERYTHING about the conversation item
             STATE.titleObserver.observe(conversationItem, {
-                childList: true,
-                subtree: true,
-                characterData: true
+                childList: true,      // Watch for added/removed nodes
+                attributes: true,     // Watch for attribute changes (style, display, etc)
+                characterData: true,  // Watch for text content changes
+                subtree: true,        // Watch the entire subtree
+                attributeOldValue: true  // Track old attribute values
             });
-            Logger.log(`TITLE observer is now active, watching specific item associated with URL: ${expectedUrl} (no timeout).`);
+            
+            Logger.log(`Enhanced TITLE observer is now active for URL: ${expectedUrl}`);
         },
 
         /**
