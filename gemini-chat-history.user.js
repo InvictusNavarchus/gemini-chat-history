@@ -14,7 +14,7 @@
 // @require      https://cdn.jsdelivr.net/npm/@violentmonkey/dom@2 // For VM.observe
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     const HISTORY_STORAGE_KEY = 'geminiChatHistory';
@@ -62,12 +62,12 @@
             }, {});
 
             // Ensure leading zeros where needed (though '2-digit' usually handles this)
-             const yyyy = parts.year;
-             const mm = parts.month.padStart(2, '0');
-             const dd = parts.day.padStart(2, '0');
-             const hh = parts.hour.padStart(2, '0');
-             const MM = parts.minute.padStart(2, '0');
-             const ss = parts.second.padStart(2, '0');
+            const yyyy = parts.year;
+            const mm = parts.month.padStart(2, '0');
+            const dd = parts.day.padStart(2, '0');
+            const hh = parts.hour.padStart(2, '0');
+            const MM = parts.minute.padStart(2, '0');
+            const ss = parts.second.padStart(2, '0');
 
             // Construct ISO-like format (close enough for sorting and readability)
             return `${yyyy}-${mm}-${dd}T${hh}:${MM}:${ss}`;
@@ -169,10 +169,10 @@
             return;
         }
         // Prevent adding entry if URL is still the base app URL
-         if (url === GEMINI_APP_URL || !url.includes('/app/c_')) {
-             console.warn("Gemini History: Attempted to add entry with base app URL or invalid chat URL.", url);
-             return;
-         }
+        if (url === GEMINI_APP_URL || !url.includes('/app/c_')) {
+            console.warn("Gemini History: Attempted to add entry with base app URL or invalid chat URL.", url);
+            return;
+        }
 
 
         const history = loadHistory();
@@ -202,7 +202,7 @@
     function extractTitleFromSidebarItem(conversationItem) {
         const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
         if (titleElement) {
-             // Clone the node to avoid modifying the live DOM while getting text
+            // Clone the node to avoid modifying the live DOM while getting text
             const titleClone = titleElement.cloneNode(true);
             const coverElement = titleClone.querySelector('.conversation-title-cover');
             if (coverElement) {
@@ -230,18 +230,18 @@
 
         // Disconnect previous observer if exists
         if (sidebarObserver) {
-             sidebarObserver.disconnect();
-             console.log("Gemini History: Disconnected previous sidebar observer.");
+            sidebarObserver.disconnect();
+            console.log("Gemini History: Disconnected previous sidebar observer.");
         }
 
 
         sidebarObserver = new MutationObserver((mutationsList, observer) => {
             // Check if the URL has changed from /app to a specific chat URL
-             const currentUrl = window.location.href;
-             if (currentUrl === GEMINI_APP_URL || !currentUrl.includes('/app/c_')) {
-                 //console.log("Gemini History: Sidebar mutation detected, but URL is still base or invalid. Waiting.");
-                 return; // URL hasn't changed to a chat URL yet, ignore sidebar changes
-             }
+            const currentUrl = window.location.href;
+            if (currentUrl === GEMINI_APP_URL || !currentUrl.includes('/app/c_')) {
+                //console.log("Gemini History: Sidebar mutation detected, but URL is still base or invalid. Waiting.");
+                return; // URL hasn't changed to a chat URL yet, ignore sidebar changes
+            }
 
 
             for (const mutation of mutationsList) {
@@ -250,8 +250,8 @@
                         // Check if the added node is the container for a conversation item
                         // The structure is often <div class="conversation-items-container ..."><div data-test-id="conversation" ...></div></div>
                         if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
-                             const conversationItem = node.querySelector('div[data-test-id="conversation"]');
-                             if (conversationItem) {
+                            const conversationItem = node.querySelector('div[data-test-id="conversation"]');
+                            if (conversationItem) {
                                 console.log("Gemini History: New conversation item container added to sidebar.");
                                 const title = extractTitleFromSidebarItem(conversationItem);
                                 const timestamp = getCurrentJakartaTimestamp();
@@ -270,7 +270,7 @@
                                     console.log("Gemini History: Successfully captured new chat. Stopped observing sidebar.");
                                     return; // Exit after handling the first new chat item
                                 } else {
-                                     console.warn("Gemini History: Sidebar item added, but missing data or still on base URL.", { title, pendingModelName, url});
+                                    console.warn("Gemini History: Sidebar item added, but missing data or still on base URL.", { title, pendingModelName, url });
                                 }
                             }
                         }
@@ -290,8 +290,8 @@
      * Handles the click on the send button to initiate tracking if it's a new chat.
      */
     function handleSendClick(event) {
-         // More specific selectors for the send button might be needed if the UI changes
-         // Check for button containing the send icon or having a specific class/attribute
+        // More specific selectors for the send button might be needed if the UI changes
+        // Check for button containing the send icon or having a specific class/attribute
         const sendButton = event.target.closest('button:has(mat-icon[data-mat-icon-name="send"]), button.send-button, button[aria-label*="Send"], button[data-test-id="send-button"]');
 
         if (sendButton && sendButton.getAttribute('aria-disabled') !== 'true') {
@@ -303,9 +303,9 @@
 
                 // Start observing the sidebar *after* the click, expecting changes soon
                 // Use setTimeout to ensure observation starts after the click event potentially triggers DOM changes
-                 setTimeout(observeSidebarForNewChat, 50);
+                setTimeout(observeSidebarForNewChat, 50);
             } else {
-                 // console.log("Gemini History: Send button clicked, but not on main app page. Ignoring.");
+                // console.log("Gemini History: Send button clicked, but not on main app page. Ignoring.");
             }
         }
     }
