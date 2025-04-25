@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.1.0
+// @version      0.2.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -20,10 +20,24 @@
     const HISTORY_STORAGE_KEY = 'geminiChatHistory';
     const JAKARTA_TIMEZONE = 'Asia/Jakarta';
     const GEMINI_APP_URL = 'https://gemini.google.com/app';
+    const LOG_PREFIX = "[Gemini History]"; // Consistent prefix for logs
 
     let isNewChatPending = false;
     let pendingModelName = null;
     let sidebarObserver = null; // To hold the MutationObserver instance
+
+    // --- Logging Helpers ---
+    function log(...args) {
+        console.log(LOG_PREFIX, ...args);
+    }
+    function warn(...args) {
+        console.warn(LOG_PREFIX, ...args);
+    }
+    function error(...args) {
+        console.error(LOG_PREFIX, ...args);
+    }
+
+    log("Script loading...");
 
     // --- Model Definitions ---
     const modelNames = {
@@ -36,242 +50,237 @@
 
     // --- Helper Functions ---
 
-    /**
-     * Gets the current timestamp formatted for Asia/Jakarta timezone (ISO 8601 format).
-     * @returns {string} Formatted timestamp string.
-     */
     function getCurrentJakartaTimestamp() {
         try {
             const now = new Date();
-            // Using options that generally lead to an ISO-like format suitable for sorting
             const options = {
-                timeZone: JAKARTA_TIMEZONE,
-                year: 'numeric',
-                month: '2-digit',
-                day: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false // Use 24-hour format
+                timeZone: JAKARTA_TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
             };
-            // Intl.DateTimeFormat can have locale-specific separators, manually assemble
-            const formatter = new Intl.DateTimeFormat('en-CA', options); // en-CA gives YYYY-MM-DD
-            const parts = formatter.formatToParts(now).reduce((acc, part) => {
-                acc[part.type] = part.value;
-                return acc;
-            }, {});
-
-            // Ensure leading zeros where needed (though '2-digit' usually handles this)
-            const yyyy = parts.year;
-            const mm = parts.month.padStart(2, '0');
-            const dd = parts.day.padStart(2, '0');
-            const hh = parts.hour.padStart(2, '0');
-            const MM = parts.minute.padStart(2, '0');
-            const ss = parts.second.padStart(2, '0');
-
-            // Construct ISO-like format (close enough for sorting and readability)
-            return `${yyyy}-${mm}-${dd}T${hh}:${MM}:${ss}`;
-
+            const formatter = new Intl.DateTimeFormat('en-CA', options);
+            const parts = formatter.formatToParts(now).reduce((acc, part) => { acc[part.type] = part.value; return acc; }, {});
+            const yyyy = parts.year; const mm = String(parts.month).padStart(2, '0'); const dd = String(parts.day).padStart(2, '0');
+            const hh = String(parts.hour).padStart(2, '0'); const MM = String(parts.minute).padStart(2, '0'); const ss = String(parts.second).padStart(2, '0');
+            const timestamp = `${yyyy}-${mm}-${dd}T${hh}:${MM}:${ss}`;
+            // log("Generated Timestamp:", timestamp); // Uncomment for very detailed logging
+            return timestamp;
         } catch (e) {
-            console.error("Gemini History: Error getting Jakarta Time timestamp.", e);
-            // Fallback to local ISO string (less ideal but better than nothing)
-            return new Date().toISOString();
+            error("Error getting Jakarta Time timestamp:", e);
+            return new Date().toISOString(); // Fallback
         }
     }
 
-    /**
-     * Gets the current model name from the UI.
-     * Adapted from your gemini usage tracker script.
-     * @returns {string | null} Standardized model name or null if not found.
-     */
     function getCurrentModelName() {
-        // Try finding the model name using the new mat-flat-button structure first
-        const modelButton = document.querySelector('button.gds-mode-switch-button.mat-mdc-button-base .logo-pill-label-container span');
+        log("Attempting to get current model name...");
         let rawText = null;
+        let foundVia = null;
 
+        // Try #1: New button structure
+        const modelButton = document.querySelector('button.gds-mode-switch-button.mat-mdc-button-base .logo-pill-label-container span');
         if (modelButton && modelButton.textContent) {
             rawText = modelButton.textContent.trim();
+            foundVia = "New Button Structure";
+            log(`Model raw text found via ${foundVia}: "${rawText}"`);
         } else {
-            // Try the previous selector (data-test-id)
+            log("Model not found via New Button Structure.");
+            // Try #2: data-test-id
             const modelElement = document.querySelector('bard-mode-switcher [data-test-id="attribution-text"] span');
-
             if (modelElement && modelElement.textContent) {
                 rawText = modelElement.textContent.trim();
+                foundVia = "Data-Test-ID";
+                log(`Model raw text found via ${foundVia}: "${rawText}"`);
             } else {
-                // Fallback selector (less reliable, might change)
+                log("Model not found via Data-Test-ID.");
+                // Try #3: Fallback selector
                 const fallbackElement = document.querySelector('.current-mode-title span');
                 if (fallbackElement && fallbackElement.textContent) {
                     rawText = fallbackElement.textContent.trim();
+                    foundVia = "Fallback Selector (.current-mode-title)";
+                    log(`Model raw text found via ${foundVia}: "${rawText}"`);
+                } else {
+                    log("Model not found via Fallback Selector.");
                 }
             }
         }
 
         if (rawText) {
-            // Sort keys by length descending to match longest first
             const sortedKeys = Object.keys(modelNames).sort((a, b) => b.length - a.length);
-
             for (const key of sortedKeys) {
                 if (rawText.startsWith(key)) {
-                    return modelNames[key]; // Return the standardized name for the longest match
+                    const model = modelNames[key];
+                    log(`Matched known model: "${model}" from raw text "${rawText}"`);
+                    return model;
                 }
             }
-            // Fallback if no specific match startsWith, maybe it's a new model
-            console.log(`Gemini History: Model text "${rawText}" didn't match known prefixes, using raw text.`);
-            return rawText; // Return the raw text as a potential new model name
+            log(`Raw text "${rawText}" didn't match known prefixes, using raw text as model name.`);
+            return rawText; // Return raw text if no prefix matches
         }
 
-        console.warn("Gemini History: Could not determine current model name.");
-        return 'Unknown'; // Indicate failure to find the model but provide a default
+        warn("Could not determine current model name from any known selector.");
+        return 'Unknown';
     }
 
-    /**
-     * Loads chat history from storage.
-     * @returns {Array<Object>} Array of history entries.
-     */
     function loadHistory() {
+        log("Loading history from storage...");
         const storedData = GM_getValue(HISTORY_STORAGE_KEY, '[]');
         try {
             const history = JSON.parse(storedData);
-            return Array.isArray(history) ? history : [];
+            if (Array.isArray(history)) {
+                log(`History loaded successfully. Found ${history.length} entries.`);
+                return history;
+            } else {
+                warn("Stored history data is not an array. Returning empty history.");
+                return [];
+            }
         } catch (e) {
-            console.error("Gemini History: Error parsing stored history.", e);
+            error("Error parsing stored history:", e, "Stored data was:", storedData);
             return []; // Return empty array on error
         }
     }
 
-    /**
-     * Saves chat history to storage.
-     * @param {Array<Object>} history Array of history entries.
-     */
     function saveHistory(history) {
+        log(`Attempting to save history with ${history.length} entries...`);
         if (!Array.isArray(history)) {
-            console.error("Gemini History: Attempted to save non-array data.");
+            error("Attempted to save non-array data. Aborting save.");
             return;
         }
         try {
             GM_setValue(HISTORY_STORAGE_KEY, JSON.stringify(history));
+            log("History saved successfully.");
         } catch (e) {
-            console.error("Gemini History: Error saving history.", e);
+            error("Error saving history:", e);
         }
     }
 
-    /**
-     * Adds a new entry to the chat history.
-     * @param {string} timestamp
-     * @param {string} url
-     * @param {string} title
-     * @param {string} model
-     */
     function addHistoryEntry(timestamp, url, title, model) {
+        log("Attempting to add history entry:", { timestamp, url, title, model });
+
         // Basic validation
         if (!timestamp || !url || !title || !model) {
-            console.warn("Gemini History: Attempted to add entry with missing data.", { timestamp, url, title, model });
-            return;
+            warn("Attempted to add entry with missing data. Skipping.", { timestamp, url, title, model });
+            return false; // Indicate failure
         }
-        // Prevent adding entry if URL is still the base app URL
+        // Prevent adding entry if URL is still the base app URL or invalid
         if (url === GEMINI_APP_URL || !url.includes('/app/c_')) {
-            console.warn("Gemini History: Attempted to add entry with base app URL or invalid chat URL.", url);
-            return;
+            warn("Attempted to add entry with base app URL or invalid chat URL. Skipping.", url);
+            return false; // Indicate failure
         }
-
 
         const history = loadHistory();
 
-        // Optional: Prevent duplicates based on URL (might happen with rapid clicks/updates)
+        // Prevent duplicates based on URL
         if (history.some(entry => entry.url === url)) {
-            console.log("Gemini History: Duplicate URL detected, skipping entry:", url);
-            return;
+            log("Duplicate URL detected, skipping entry:", url);
+            return false; // Indicate failure (or already added)
         }
 
-        history.unshift({ // Add to the beginning for recent first
-            timestamp: timestamp,
-            url: url,
-            title: title,
-            model: model
-        });
+        history.unshift({ timestamp, url, title, model }); // Add to beginning
         saveHistory(history);
-        console.log("Gemini History: Added entry -", { timestamp, url, title, model });
+        log("Successfully added history entry.");
+        return true; // Indicate success
     }
 
-
-    /**
-     * Extracts the title from a conversation list item element.
-     * @param {Element} conversationItem The DIV element with data-test-id="conversation".
-     * @returns {string | null} The trimmed title or null if not found.
-     */
     function extractTitleFromSidebarItem(conversationItem) {
+        log("Attempting to extract title from sidebar item:", conversationItem);
         const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
         if (titleElement) {
-            // Clone the node to avoid modifying the live DOM while getting text
-            const titleClone = titleElement.cloneNode(true);
-            const coverElement = titleClone.querySelector('.conversation-title-cover');
-            if (coverElement) {
-                coverElement.remove(); // Remove the cover div if it exists
+            log("Found title element:", titleElement);
+            try {
+                // Clone the node to avoid modifying the live DOM while getting text
+                const titleClone = titleElement.cloneNode(true);
+                const coverElement = titleClone.querySelector('.conversation-title-cover');
+                if (coverElement) {
+                    log("Found and removing title cover element.");
+                    coverElement.remove();
+                } else {
+                    log("No title cover element found inside title element.");
+                }
+                const title = titleClone.textContent.trim();
+                log(`Extracted title: "${title}"`);
+                return title;
+            } catch (e) {
+                error("Error during title extraction:", e);
+                return null;
             }
-            return titleClone.textContent.trim();
         }
-        console.warn("Gemini History: Could not find title element within conversation item.");
+        warn("Could not find title element (.conversation-title.gds-body-m) within conversation item.");
         return null;
     }
 
-    /**
-    * Sets up the MutationObserver to watch the sidebar for new chat entries.
-    */
     function observeSidebarForNewChat() {
-        const conversationListElement = document.querySelector('conversations-list[data-test-id="all-conversations"]');
+        const targetSelector = 'conversations-list[data-test-id="all-conversations"]';
+        const conversationListElement = document.querySelector(targetSelector);
+
         if (!conversationListElement) {
-            console.warn("Gemini History: Could not find conversation list element to observe.");
+            warn(`Could not find conversation list element ("${targetSelector}") to observe. Aborting observation setup.`);
             isNewChatPending = false; // Reset flag if we can't observe
             pendingModelName = null;
             return;
         }
 
-        console.log("Gemini History: Observing sidebar for new chat entry...");
+        log("Found conversation list element. Setting up sidebar observer...");
 
         // Disconnect previous observer if exists
         if (sidebarObserver) {
+            log("Disconnecting previous sidebar observer.");
             sidebarObserver.disconnect();
-            console.log("Gemini History: Disconnected previous sidebar observer.");
+            sidebarObserver = null;
         }
 
-
         sidebarObserver = new MutationObserver((mutationsList, observer) => {
-            // Check if the URL has changed from /app to a specific chat URL
+            log(`Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
             const currentUrl = window.location.href;
+            log(`Current URL inside observer: ${currentUrl}`);
+
+            // Check if the URL has changed from /app to a specific chat URL
             if (currentUrl === GEMINI_APP_URL || !currentUrl.includes('/app/c_')) {
-                //console.log("Gemini History: Sidebar mutation detected, but URL is still base or invalid. Waiting.");
-                return; // URL hasn't changed to a chat URL yet, ignore sidebar changes
+                log("URL is still base or invalid. Waiting for URL change before processing sidebar mutations.");
+                return; // Ignore sidebar changes until URL is correct
             }
 
-
+            log("URL check passed. Processing mutations...");
             for (const mutation of mutationsList) {
+                //log("Mutation details:", mutation); // Uncomment for extreme detail
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    log(`Mutation type is childList with ${mutation.addedNodes.length} added node(s).`);
                     for (const node of mutation.addedNodes) {
-                        // Check if the added node is the container for a conversation item
-                        // The structure is often <div class="conversation-items-container ..."><div data-test-id="conversation" ...></div></div>
+                        //log("Checking added node:", node); // Uncomment for extreme detail
                         if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
+                            log("Found added node matching 'conversation-items-container'. Searching for conversation item inside...");
                             const conversationItem = node.querySelector('div[data-test-id="conversation"]');
                             if (conversationItem) {
-                                console.log("Gemini History: New conversation item container added to sidebar.");
+                                log("Found conversation item (div[data-test-id='conversation']) inside container.");
                                 const title = extractTitleFromSidebarItem(conversationItem);
                                 const timestamp = getCurrentJakartaTimestamp();
-                                const url = window.location.href; // Get the URL *after* it has changed
+                                const url = window.location.href; // Re-check URL just in case
 
+                                log("Checking conditions for adding history entry:", { title, pendingModelName, url });
 
                                 if (title && pendingModelName && url !== GEMINI_APP_URL) {
-                                    console.log("Gemini History: Found title and pending model. Adding history entry.");
-                                    addHistoryEntry(timestamp, url, title, pendingModelName);
+                                    log("All conditions met. Attempting to add history entry...");
+                                    const added = addHistoryEntry(timestamp, url, title, pendingModelName);
 
-                                    // --- Cleanup ---
-                                    isNewChatPending = false;
-                                    pendingModelName = null;
-                                    observer.disconnect(); // Stop observing once we've captured the new chat
-                                    sidebarObserver = null; // Clear the observer instance variable
-                                    console.log("Gemini History: Successfully captured new chat. Stopped observing sidebar.");
-                                    return; // Exit after handling the first new chat item
+                                    if (added) {
+                                        // --- Cleanup ---
+                                        log("History entry added successfully. Cleaning up.");
+                                        isNewChatPending = false;
+                                        pendingModelName = null;
+                                        observer.disconnect(); // Stop observing
+                                        sidebarObserver = null; // Clear the observer instance variable
+                                        log("Observer disconnected. Stopped watching sidebar for this new chat.");
+                                        return; // Exit after handling the first new chat item
+                                    } else {
+                                        warn("addHistoryEntry indicated failure (e.g., duplicate or validation). Not disconnecting observer yet.");
+                                        // Might need more complex logic here if partial saves are possible, but for now we assume addHistoryEntry handles skips cleanly.
+                                        // Resetting flags might be risky if addHistoryEntry fails unexpectedly.
+                                        // isNewChatPending = false; // Consider if resetting flags here is safe
+                                        // pendingModelName = null;
+                                    }
                                 } else {
-                                    console.warn("Gemini History: Sidebar item added, but missing data or still on base URL.", { title, pendingModelName, url });
+                                    warn("Sidebar item added, but failed condition check (missing title, pending model, or wrong URL).", { titleExists: !!title, modelPending: !!pendingModelName, urlValid: url !== GEMINI_APP_URL });
                                 }
+                            } else {
+                                log("Did not find conversation item (div[data-test-id='conversation']) inside the added container.");
                             }
                         }
                     }
@@ -281,86 +290,94 @@
 
         sidebarObserver.observe(conversationListElement, {
             childList: true, // Watch for direct children being added/removed
-            subtree: true    // Watch deeper descendants as well (like the item inside the container)
+            subtree: true    // Watch deeper descendants as well
         });
+        log("Sidebar observer is now active.");
     }
 
 
-    /**
-     * Handles the click on the send button to initiate tracking if it's a new chat.
-     */
     function handleSendClick(event) {
-        // More specific selectors for the send button might be needed if the UI changes
-        // Check for button containing the send icon or having a specific class/attribute
+        log("Click detected on body (capture phase). Target:", event.target);
         const sendButton = event.target.closest('button:has(mat-icon[data-mat-icon-name="send"]), button.send-button, button[aria-label*="Send"], button[data-test-id="send-button"]');
 
-        if (sendButton && sendButton.getAttribute('aria-disabled') !== 'true') {
-            // Check if we are on the main app page (starting a NEW chat)
-            if (window.location.href === GEMINI_APP_URL) {
-                console.log("Gemini History: Send button clicked on main app page. Preparing to capture new chat.");
-                isNewChatPending = true;
-                pendingModelName = getCurrentModelName(); // Capture model *before* navigating
-
-                // Start observing the sidebar *after* the click, expecting changes soon
-                // Use setTimeout to ensure observation starts after the click event potentially triggers DOM changes
-                setTimeout(observeSidebarForNewChat, 50);
-            } else {
-                // console.log("Gemini History: Send button clicked, but not on main app page. Ignoring.");
+        if (sendButton) {
+            log("Click target is (or is inside) a potential send button.");
+            if (sendButton.getAttribute('aria-disabled') === 'true') {
+                log("Send button is disabled. Ignoring click.");
+                return;
             }
+            log("Send button identified and is enabled.");
+            const currentUrl = window.location.href;
+            log(`Current URL at time of click: ${currentUrl}`);
+
+            // Check if we are on the main app page (starting a NEW chat)
+            if (currentUrl === GEMINI_APP_URL) {
+                log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
+                isNewChatPending = true;
+                log("Set isNewChatPending = true");
+                pendingModelName = getCurrentModelName(); // Capture model *before* navigating
+                log(`Captured pending model name: "${pendingModelName}"`);
+
+                // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
+                setTimeout(() => {
+                    log("Initiating sidebar observation via setTimeout.");
+                    observeSidebarForNewChat();
+                }, 50); // Small delay
+            } else {
+                log("URL does not match GEMINI_APP_URL. Ignoring click for history tracking.");
+            }
+        } else {
+            // This will log for *every* click not on the send button, potentially noisy.
+            // log("Click target was not the send button.");
         }
     }
 
 
-    /**
-     * Exports the chat history to a JSON file.
-     */
     function exportHistoryToJson() {
+        log("Export command triggered.");
         const history = loadHistory();
         if (history.length === 0) {
+            warn("No history found to export.");
             alert("Gemini History: No history found to export.");
             return;
         }
 
-        const jsonString = JSON.stringify(history, null, 2); // Pretty print JSON
-        const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
+        log(`Exporting ${history.length} history entries.`);
+        try {
+            const jsonString = JSON.stringify(history, null, 2); // Pretty print
+            const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
 
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        // Generate filename with current date
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        link.setAttribute("download", `gemini_chat_history_${timestamp}.json`);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const filename = `gemini_chat_history_${timestamp}.json`;
+            link.setAttribute("download", filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            log(`Download initiated for file: ${filename}`);
 
-        // Revoke the Blob URL after a short delay
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-        console.log("Gemini History: Export initiated.");
+            // Revoke the Blob URL after a short delay
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+                log("Blob URL revoked.");
+            }, 1000);
+
+        } catch (e) {
+            error("Error during JSON export process:", e);
+            alert("Gemini History: An error occurred during export. Check the console (F12).");
+        }
     }
 
     // --- Initialization ---
+    log("Attaching main click listener to document body...");
+    document.body.addEventListener('click', handleSendClick, true); // Use capture phase
 
-    console.log("Gemini History Manager: Script loaded.");
-
-    // Attach the primary event listener for the send button click
-    // Use event delegation on the body
-    document.body.addEventListener('click', handleSendClick, true); // Use capture phase to catch early
-
-    // Add the export command to the Tampermonkey/Violentmonkey menu
+    log("Registering export menu command...");
     GM_registerMenuCommand("Export Gemini Chat History to JSON", exportHistoryToJson);
 
-    // Initial check in case the script loads *after* a chat page is already open
-    // This part is less critical for the *new chat* detection but good practice.
-    // VM.observe(document.body, () => {
-    //     const chatContainer = document.querySelector('chat-window');
-    //     if (chatContainer) {
-    //         console.log("Gemini History Manager: Chat UI detected.");
-    //         // Potentially add logic here if needed when loading on an existing chat page
-    //         return true; // Stop observing once UI is found
-    //     }
-    //     return false; // Continue observing
-    // });
+    log("Gemini History Manager initialization complete.");
 
 })();
