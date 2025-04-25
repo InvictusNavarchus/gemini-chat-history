@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.2
+// @version      0.2.3
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -420,18 +420,41 @@
                 return; // Already done or aborted
             }
 
-            // Set up the title observer if title not present initially AND URL still matches
+            // Set up a modified title observer that first looks for the title element, then for text
             STATE.titleObserver = new MutationObserver(() => {
                 Logger.log("TITLE Observer Callback Triggered.");
-                // Re-check the title AND the URL on any mutation within the item
-                if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model)) {
-                    Logger.log("Title capture process concluded via TITLE observer callback (found title or URL changed).");
-                    // Disconnect happens within the attemptTitleCaptureAndSave function
-                } else {
-                    Logger.log("Title observer triggered, but title still not found/empty or URL mismatch.");
+                
+                // First, check if URL still matches
+                if (window.location.href !== expectedUrl) {
+                    Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}". Disconnecting TITLE observer.`);
+                    STATE.titleObserver.disconnect();
+                    STATE.titleObserver = null;
+                    return;
                 }
+                
+                // Look for the title element
+                const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
+                if (!titleElement) {
+                    Logger.log("Title element still not present in the DOM. Waiting...");
+                    return;
+                }
+                
+                // Title element exists - now check if it has text content
+                if (titleElement.firstChild && titleElement.firstChild.nodeType === Node.TEXT_NODE) {
+                    const title = titleElement.firstChild.textContent.trim();
+                    if (title) {
+                        Logger.log(`Title found for ${expectedUrl}: "${title}". Adding history entry.`);
+                        STATE.titleObserver.disconnect();
+                        STATE.titleObserver = null;
+                        HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                        return;
+                    }
+                }
+                
+                Logger.log("Title element found but text content not ready yet. Waiting...");
             });
 
+            // Observe for any changes to the conversation item and its descendants
             STATE.titleObserver.observe(conversationItem, {
                 childList: true,
                 subtree: true,
