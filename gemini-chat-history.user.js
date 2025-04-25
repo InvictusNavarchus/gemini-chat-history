@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.1
+// @version      0.2.2
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -185,22 +185,30 @@
         log("Attempting to extract title from sidebar item:", conversationItem);
         const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
         if (titleElement) {
-            log("Found title element:", titleElement);
+            log("Found title container element:", titleElement);
             try {
-                // Clone the node to avoid modifying the live DOM while getting text
-                const titleClone = titleElement.cloneNode(true);
-                const coverElement = titleClone.querySelector('.conversation-title-cover');
-                if (coverElement) {
-                    log("Found and removing title cover element.");
-                    coverElement.remove();
+                // Directly access the first child node, assuming it's the text node containing the title.
+                if (titleElement.firstChild && titleElement.firstChild.nodeType === Node.TEXT_NODE) {
+                    // nodeType 3 is Text node
+                    const title = titleElement.firstChild.textContent.trim();
+                    log(`Extracted title directly from firstChild text node: "${title}"`);
+
+                    // Return the title only if it's not just whitespace
+                    return title ? title : null;
                 } else {
-                    log("No title cover element found inside title element.");
+                    // Log if the assumption is wrong
+                    warn("First child of title element is not a text node or is missing.");
+                    if (titleElement.firstChild) {
+                        warn(`First child nodeType is: ${titleElement.firstChild.nodeType}`);
+                    }
+                    // As a less reliable fallback, log the full textContent, but don't return it
+                    // as it might contain the cover text or other unwanted content.
+                    warn(`Logging full textContent as fallback diagnostic: "${titleElement.textContent.trim()}"`);
+                    return null; // Indicate failure to find the specific title text node
                 }
-                const title = titleClone.textContent.trim();
-                log(`Extracted title: "${title}"`);
-                return title;
+
             } catch (e) {
-                error("Error during title extraction:", e);
+                error("Error during direct title extraction:", e);
                 return null;
             }
         }
@@ -227,11 +235,11 @@
 
         // Disconnect previous observers if they exist
         if (sidebarObserver) {
-             log("Disconnecting previous MAIN sidebar observer.");
-             sidebarObserver.disconnect();
-             sidebarObserver = null;
+            log("Disconnecting previous MAIN sidebar observer.");
+            sidebarObserver.disconnect();
+            sidebarObserver = null;
         }
-         if (titleObserver) {
+        if (titleObserver) {
             // If a title observer is somehow still active when we start a new chat observation,
             // disconnect it to prevent multiple lingering observers.
             warn("Disconnecting lingering TITLE observer from previous attempt.");
@@ -255,7 +263,7 @@
             for (const mutation of mutationsList) {
                 if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                     for (const node of mutation.addedNodes) {
-                         if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
+                        if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
                             const conversationItem = node.querySelector('div[data-test-id="conversation"]');
                             if (conversationItem && isNewChatPending) {
                                 log("Found NEW conversation item container. Preparing to wait for title...");
@@ -308,8 +316,8 @@
 
                                 // Initial check right away
                                 if (attemptTitleCaptureAndSave(conversationItem, urlCaptured, timestampCaptured, modelCaptured)) {
-                                     log("Title capture process concluded on initial check (found title or URL changed).");
-                                     return; // Already done or aborted
+                                    log("Title capture process concluded on initial check (found title or URL changed).");
+                                    return; // Already done or aborted
                                 }
 
                                 // Set up the title observer if title not present initially AND URL still matches
@@ -320,7 +328,7 @@
                                         log("Title capture process concluded via TITLE observer callback (found title or URL changed).");
                                         // Disconnect happens within the function
                                     } else {
-                                         log("Title observer triggered, but title still not found/empty or URL mismatch.");
+                                        log("Title observer triggered, but title still not found/empty or URL mismatch.");
                                     }
                                 });
 
