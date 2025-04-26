@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.5.0
+// @version      0.6.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -703,8 +703,8 @@
 
         // Register menu commands
         Logger.log("Registering menu commands...");
-        GM_registerMenuCommand("Export Gemini Chat History to JSON", HistoryManager.exportToJson.bind(HistoryManager));
         GM_registerMenuCommand("View Gemini Chat History JSON", HistoryManager.viewHistoryJson.bind(HistoryManager));
+        GM_registerMenuCommand("Export Gemini Chat History to JSON", HistoryManager.exportToJson.bind(HistoryManager));
 
         Logger.log("Gemini History Manager initialization complete.");
     }
