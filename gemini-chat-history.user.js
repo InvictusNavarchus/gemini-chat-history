@@ -300,35 +300,33 @@
          */
         extractTitleFromSidebarItem: function (conversationItem) {
             Logger.log("Attempting to extract title from sidebar item:", conversationItem);
-            // Updated selector to match both active and inactive conversation titles
             const titleElement = conversationItem.querySelector('.conversation-title');
-            if (titleElement) {
-                Logger.log("Found title container element:", titleElement);
-                try {
-                    // Directly access the first child node, assuming it's the text node containing the title.
-                    if (titleElement.firstChild && titleElement.firstChild.nodeType === Node.TEXT_NODE) {
-                        // nodeType 3 is Text node
-                        const title = titleElement.firstChild.textContent.trim();
-                        Logger.log(`Extracted title directly from firstChild text node: "${title}"`);
-
-                        // Return the title only if it's not just whitespace
-                        return title ? title : null;
-                    } else {
-                        // Log if the assumption is wrong
-                        Logger.warn("First child of title element is not a text node or is missing.");
-                        if (titleElement.firstChild) {
-                            Logger.warn(`First child nodeType is: ${titleElement.firstChild.nodeType}`);
-                        }
-                        // As a less reliable fallback, log the full textContent
-                        Logger.warn(`Logging full textContent as fallback diagnostic: "${titleElement.textContent.trim()}"`);
-                        return null; // Indicate failure to find the specific title text node
-                    }
-                } catch (e) {
-                    Logger.error("Error during direct title extraction:", e);
-                    return null;
-                }
+            if (!titleElement) {
+                Logger.warn("Could not find title element (.conversation-title).");
+                return null;
             }
-            Logger.warn("Could not find title element (.conversation-title) within conversation item.");
+            Logger.log("Found title container element:", titleElement);
+            try {
+                // Try direct text node
+                const first = titleElement.firstChild;
+                if (first && first.nodeType === Node.TEXT_NODE) {
+                    const t = first.textContent.trim();
+                    if (t) {
+                        Logger.log(`Extracted via text node: "${t}"`);
+                        return t;
+                    }
+                    Logger.warn("Text node was empty, falling back.");
+                }
+                // FALLBACK: full textContent
+                const full = titleElement.textContent.trim();
+                if (full) {
+                    Logger.log(`Fallback textContent: "${full}"`);
+                    return full;
+                }
+                Logger.warn("titleElement.textContent was empty or whitespace.");
+            } catch (e) {
+                Logger.error("Error during title extraction:", e);
+            }
             return null;
         },
 
@@ -415,71 +413,37 @@
          * Sets up observation of a specific conversation item to capture its title once available
          */
         observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model) {
-            // Initial check right away
+            // Initial check
             if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model)) {
-                Logger.log("Title capture process concluded on initial check (found title or URL changed).");
-                return; // Already done or aborted
+                return;
             }
 
-            // Set up a more comprehensive observer that watches EVERYTHING
-            STATE.titleObserver = new MutationObserver((mutations) => {
-                Logger.log(`TITLE Observer Callback Triggered. ${mutations.length} mutations.`);
-                
-                // First, check if URL still matches
+            STATE.titleObserver = new MutationObserver(() => {
+                // Abort if URL changed
                 if (window.location.href !== expectedUrl) {
-                    Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}". Disconnecting TITLE observer.`);
+                    Logger.warn("URL changed; disconnecting TITLE observer.");
                     STATE.titleObserver.disconnect();
                     STATE.titleObserver = null;
                     return;
                 }
-                
-                // Directly look for and extract the title text from anywhere inside the conversation item
-                const titleElements = conversationItem.querySelectorAll('.conversation-title');
-                Logger.log(`Found ${titleElements.length} potential title elements in the conversation item.`);
-                
-                for (const titleElement of titleElements) {
-                    // Check if this title element has direct text content
-                    if (titleElement.childNodes) {
-                        for (const node of titleElement.childNodes) {
-                            if (node.nodeType === Node.TEXT_NODE) {
-                                const text = node.textContent.trim();
-                                if (text) {
-                                    Logger.log(`Found text node with content: "${text}"`);
-                                    // We found a non-empty text node - use it as the title
-                                    Logger.log(`Title found for ${expectedUrl}: "${text}". Adding history entry.`);
-                                    STATE.titleObserver.disconnect();
-                                    STATE.titleObserver = null;
-                                    HistoryManager.addHistoryEntry(timestamp, expectedUrl, text, model);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                    
-                    // If we couldn't find direct text node but the element has textContent, use that as fallback
-                    const fullText = titleElement.textContent.trim();
-                    if (fullText) {
-                        Logger.log(`Using textContent as fallback: "${fullText}"`);
-                        STATE.titleObserver.disconnect();
-                        STATE.titleObserver = null;
-                        HistoryManager.addHistoryEntry(timestamp, expectedUrl, fullText, model);
-                        return;
-                    }
+                // Single unified extraction
+                const title = this.extractTitleFromSidebarItem(conversationItem);
+                if (title) {
+                    Logger.log(`Title found; adding history entry: "${title}"`);
+                    STATE.titleObserver.disconnect();
+                    STATE.titleObserver = null;
+                    HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                    return;
                 }
-                
-                Logger.log("No title with text found yet. Continuing to observe...");
+                Logger.log("No title yet; continuing to observe...");
             });
 
-            // Observe EVERYTHING about the conversation item
             STATE.titleObserver.observe(conversationItem, {
-                childList: true,      // Watch for added/removed nodes
-                attributes: true,     // Watch for attribute changes (style, display, etc)
-                characterData: true,  // Watch for text content changes
-                subtree: true,        // Watch the entire subtree
-                attributeOldValue: true  // Track old attribute values
+                childList: true, attributes: true,
+                characterData: true, subtree: true,
+                attributeOldValue: true
             });
-            
-            Logger.log(`Enhanced TITLE observer is now active for URL: ${expectedUrl}`);
+            Logger.log(`TITLE observer active for URL: ${expectedUrl}`);
         },
 
         /**
