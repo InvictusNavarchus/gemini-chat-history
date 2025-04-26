@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.4
+// @version      0.2.5
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -300,7 +300,8 @@
          */
         extractTitleFromSidebarItem: function (conversationItem) {
             Logger.log("Attempting to extract title from sidebar item:", conversationItem);
-            const titleElement = conversationItem.querySelector('.conversation-title.gds-body-m');
+            // Updated selector to match both active and inactive conversation titles
+            const titleElement = conversationItem.querySelector('.conversation-title');
             if (titleElement) {
                 Logger.log("Found title container element:", titleElement);
                 try {
@@ -327,7 +328,7 @@
                     return null;
                 }
             }
-            Logger.warn("Could not find title element (.conversation-title.gds-body-m) within conversation item.");
+            Logger.warn("Could not find title element (.conversation-title) within conversation item.");
             return null;
         },
 
@@ -433,7 +434,7 @@
                 }
                 
                 // Directly look for and extract the title text from anywhere inside the conversation item
-                const titleElements = conversationItem.querySelectorAll('.conversation-title.gds-body-m');
+                const titleElements = conversationItem.querySelectorAll('.conversation-title');
                 Logger.log(`Found ${titleElements.length} potential title elements in the conversation item.`);
                 
                 for (const titleElement of titleElements) {
