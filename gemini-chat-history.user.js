@@ -296,6 +296,17 @@
      */
     const DomObserver = {
         /**
+         * Helper function to disconnect an observer and set it to null
+         */
+        cleanupObserver: function(observerName) {
+            if (STATE[observerName]) {
+                Logger.log(`Disconnecting ${observerName}.`);
+                STATE[observerName].disconnect();
+                STATE[observerName] = null;
+            }
+        },
+
+        /**
          * Extracts the title from a sidebar conversation item
          */
         extractTitleFromSidebarItem: function (conversationItem) {
@@ -347,16 +358,8 @@
             Logger.log("Found conversation list element. Setting up MAIN sidebar observer...");
 
             // Disconnect previous observers if they exist
-            if (STATE.sidebarObserver) {
-                Logger.log("Disconnecting previous MAIN sidebar observer.");
-                STATE.sidebarObserver.disconnect();
-                STATE.sidebarObserver = null;
-            }
-            if (STATE.titleObserver) {
-                Logger.warn("Disconnecting lingering TITLE observer from previous attempt.");
-                STATE.titleObserver.disconnect();
-                STATE.titleObserver = null;
-            }
+            this.cleanupObserver('sidebarObserver');
+            this.cleanupObserver('titleObserver');
 
             STATE.sidebarObserver = new MutationObserver((mutationsList, mainObserver) => {
                 Logger.log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
@@ -378,9 +381,7 @@
                                     Logger.log("Found NEW conversation item container. Preparing to wait for title...");
 
                                     // Stage 1 Complete: Found the Item - Disconnect the MAIN observer
-                                    Logger.log("Disconnecting MAIN sidebar observer.");
-                                    mainObserver.disconnect();
-                                    STATE.sidebarObserver = null;
+                                    this.cleanupObserver('sidebarObserver');
 
                                     // Stage 2: Wait for the Title (Context Capture)
                                     Logger.log(`Starting TITLE observation process for specific item:`, conversationItem);
@@ -410,6 +411,19 @@
         },
 
         /**
+         * Helper function to process title and add history entry
+         */
+        processTitleAndAddHistory: function(title, expectedUrl, timestamp, model) {
+            if (title) {
+                Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
+                this.cleanupObserver('titleObserver');
+                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                return true;
+            }
+            return false;
+        },
+
+        /**
          * Sets up observation of a specific conversation item to capture its title once available
          */
         observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model) {
@@ -422,19 +436,16 @@
                 // Abort if URL changed
                 if (window.location.href !== expectedUrl) {
                     Logger.warn("URL changed; disconnecting TITLE observer.");
-                    STATE.titleObserver.disconnect();
-                    STATE.titleObserver = null;
+                    this.cleanupObserver('titleObserver');
                     return;
                 }
-                // Single unified extraction
+                
+                // Extract title and process if found
                 const title = this.extractTitleFromSidebarItem(conversationItem);
-                if (title) {
-                    Logger.log(`Title found; adding history entry: "${title}"`);
-                    STATE.titleObserver.disconnect();
-                    STATE.titleObserver = null;
-                    HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model)) {
                     return;
                 }
+                
                 Logger.log("No title yet; continuing to observe...");
             });
 
@@ -453,27 +464,14 @@
             // Check if we are still on the page this observer was created for
             if (window.location.href !== expectedUrl) {
                 Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}" while waiting for title. Disconnecting TITLE observer.`);
-                if (STATE.titleObserver) {
-                    STATE.titleObserver.disconnect();
-                    STATE.titleObserver = null;
-                }
+                this.cleanupObserver('titleObserver');
                 return true; // Return true to indicate we should stop trying (observer is disconnected)
             }
 
             const title = this.extractTitleFromSidebarItem(item);
             Logger.log(`TITLE Check (URL: ${expectedUrl}): Extracted title: "${title}"`);
 
-            if (title) { // Title is present and non-empty
-                Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
-                if (STATE.titleObserver) {
-                    Logger.log("Disconnecting TITLE observer after successful capture.");
-                    STATE.titleObserver.disconnect();
-                    STATE.titleObserver = null;
-                }
-                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
-                return true; // Indicate success, stop trying
-            }
-            return false; // Title not ready yet, continue trying
+            return this.processTitleAndAddHistory(title, expectedUrl, timestamp, model);
         }
     };
 
