@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.4.0
+// @version      0.5.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -343,6 +343,38 @@
                 Logger.error("Error during JSON export process:", e);
                 alert("Gemini History: An error occurred during export. Check the console (F12).");
             }
+        },
+        
+        /**
+         * Views history as JSON in a new browser tab
+         */
+        viewHistoryJson: function () {
+            Logger.log("View JSON command triggered.");
+            const history = this.loadHistory();
+            if (history.length === 0) {
+                Logger.warn("No history found to view.");
+                alert("Gemini History: No history found to view.");
+                return;
+            }
+
+            Logger.log(`Viewing ${history.length} history entries.`);
+            try {
+                const jsonString = JSON.stringify(history, null, 2); // Pretty print
+                const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                
+                // Open in new tab instead of downloading
+                window.open(url, '_blank');
+                
+                // Revoke the Blob URL after a longer delay (user might need time to view)
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    Logger.log("Blob URL revoked.");
+                }, 60000); // 1 minute delay to ensure user has time to view
+            } catch (e) {
+                Logger.error("Error during JSON view process:", e);
+                alert("Gemini History: An error occurred while viewing JSON. Check the console (F12).");
+            }
         }
     };
 
@@ -669,9 +701,10 @@
         Logger.log("Attaching main click listener to document body...");
         document.body.addEventListener('click', EventHandlers.handleSendClick.bind(EventHandlers), true); // Use capture phase
 
-        // Register menu command for export
-        Logger.log("Registering export menu command...");
+        // Register menu commands
+        Logger.log("Registering menu commands...");
         GM_registerMenuCommand("Export Gemini Chat History to JSON", HistoryManager.exportToJson.bind(HistoryManager));
+        GM_registerMenuCommand("View Gemini Chat History JSON", HistoryManager.viewHistoryJson.bind(HistoryManager));
 
         Logger.log("Gemini History Manager initialization complete.");
     }
