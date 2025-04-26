@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.3.0
+// @version      0.4.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -182,11 +182,23 @@
     const InputExtractor = {
         /**
          * Extracts the prompt text from the input area.
+         * If the prompt contains code blocks delimited by triple backticks,
+         * it will be truncated and a placeholder will be added.
          */
         getPromptText: function () {
             const promptElement = document.querySelector('rich-textarea .ql-editor');
             if (promptElement) {
                 const text = promptElement.innerText.trim();
+                
+                // Check for triple backticks and truncate if found
+                const backtickIndex = text.indexOf('```');
+                if (backtickIndex !== -1) {
+                    const truncatedText = text.substring(0, backtickIndex).trim();
+                    Logger.log(`Found code block in prompt. Truncating at index ${backtickIndex}`);
+                    Logger.log(`Extracted prompt text (truncated): "${truncatedText} [attached blockcode]"`);
+                    return `${truncatedText} [attached blockcode]`;
+                }
+                
                 Logger.log(`Extracted prompt text: "${text}"`);
                 return text;
             } else {
