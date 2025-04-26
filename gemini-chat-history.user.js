@@ -3,8 +3,8 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.2.6
-// @description  Tracks Gemini chat history (Timestamp, URL, Title, Model) and allows exporting to JSON.
+// @version      0.3.0
+// @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
 // @icon         https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg
@@ -46,8 +46,10 @@
     const STATE = {
         isNewChatPending: false,
         pendingModelName: null,
-        sidebarObserver: null, // Main MutationObserver instance
-        titleObserver: null    // Secondary MutationObserver for title
+        pendingPrompt: null,
+        pendingAttachedFiles: [],
+        sidebarObserver: null,
+        titleObserver: null
     };
 
     /**
@@ -174,6 +176,48 @@
 
     /**
      * ==========================================
+     * PROMPT/FILE EXTRACTION MODULE
+     * ==========================================
+     */
+    const InputExtractor = {
+        /**
+         * Extracts the prompt text from the input area.
+         */
+        getPromptText: function () {
+            const promptElement = document.querySelector('rich-textarea .ql-editor');
+            if (promptElement) {
+                const text = promptElement.innerText.trim();
+                Logger.log(`Extracted prompt text: "${text}"`);
+                return text;
+            } else {
+                Logger.warn("Could not find prompt input element ('rich-textarea .ql-editor').");
+                return ''; // Return empty string if not found
+            }
+        },
+
+        /**
+         * Extracts the filenames of attached files.
+         * Returns an array of filenames (strings).
+         */
+        getAttachedFiles: function () {
+            const fileElements = document.querySelectorAll('uploader-file-preview-container .file-preview [data-test-id="file-name"]');
+            if (fileElements.length > 0) {
+                const filenames = Array.from(fileElements).map(el => {
+                    // Prefer the 'title' attribute as it usually contains the full name
+                    return el.getAttribute('title') || el.innerText.trim();
+                });
+                Logger.log(`Extracted attached filenames:`, filenames);
+                return filenames;
+            } else {
+                Logger.log("No attached file elements found.");
+                return []; // Return empty array if none found
+            }
+        }
+    };
+
+
+    /**
+     * ==========================================
      * HISTORY MANAGEMENT MODULE
      * ==========================================
      */
@@ -219,12 +263,13 @@
         /**
          * Adds a new entry to the chat history
          */
-        addHistoryEntry: function (timestamp, url, title, model) {
-            Logger.log("Attempting to add history entry:", { timestamp, url, title, model });
+        addHistoryEntry: function (timestamp, url, title, model, prompt, attachedFiles) {
+            const entryData = { timestamp, url, title, model, prompt, attachedFiles };
+            Logger.log("Attempting to add history entry:", entryData);
 
-            // Basic validation
+            // Basic validation (Title, URL, Timestamp, Model are still required)
             if (!timestamp || !url || !title || !model) {
-                Logger.warn("Attempted to add entry with missing data. Skipping.", { timestamp, url, title, model });
+                Logger.warn("Attempted to add entry with missing essential data. Skipping.", entryData);
                 return false; // Indicate failure
             }
 
@@ -242,7 +287,7 @@
                 return false; // Indicate failure (or already added)
             }
 
-            history.unshift({ timestamp, url, title, model }); // Add to beginning
+            history.unshift(entryData); // Add to beginning
             this.saveHistory(history);
             Logger.log("Successfully added history entry.");
             return true; // Indicate success
@@ -373,7 +418,9 @@
             return {
                 timestamp: Utils.getCurrentJakartaTimestamp(),
                 url: window.location.href,
-                model: STATE.pendingModelName
+                model: STATE.pendingModelName,
+                prompt: STATE.pendingPrompt,
+                attachedFiles: STATE.pendingAttachedFiles
             };
         },
 
@@ -410,10 +457,12 @@
                 // Clear pending flags
                 STATE.isNewChatPending = false;
                 STATE.pendingModelName = null;
-                Logger.log(`Cleared isNewChatPending flag. Waiting for title associated with URL: ${context.url}`);
+                STATE.pendingPrompt = null;
+                STATE.pendingAttachedFiles = [];
+                Logger.log(`Cleared pending flags. Waiting for title associated with URL: ${context.url}`);
 
                 // Stage 2: Wait for the Title
-                this.observeTitleForItem(conversationItem, context.url, context.timestamp, context.model);
+                this.observeTitleForItem(conversationItem, context.url, context.timestamp, context.model, context.prompt, context.attachedFiles);
                 return true;
             }
 
@@ -431,6 +480,8 @@
                 Logger.warn(`Could not find conversation list element ("${targetSelector}") to observe. Aborting observation setup.`);
                 STATE.isNewChatPending = false; // Reset flag
                 STATE.pendingModelName = null;
+                STATE.pendingPrompt = null;
+                STATE.pendingAttachedFiles = [];
                 return;
             }
 
@@ -454,11 +505,11 @@
         /**
          * Helper function to process title and add history entry
          */
-        processTitleAndAddHistory: function (title, expectedUrl, timestamp, model) {
+        processTitleAndAddHistory: function (title, expectedUrl, timestamp, model, prompt, attachedFiles) {
             if (title) {
                 Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
                 STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
-                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
+                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model, prompt, attachedFiles);
                 return true;
             }
             return false;
@@ -467,7 +518,7 @@
         /**
          * Process mutations for title changes
          */
-        processTitleMutations: function (conversationItem, expectedUrl, timestamp, model) {
+        processTitleMutations: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles) {
             // Abort if URL changed
             if (window.location.href !== expectedUrl) {
                 Logger.warn("URL changed; disconnecting TITLE observer.");
@@ -477,7 +528,7 @@
 
             // Extract title and process if found
             const title = this.extractTitleFromSidebarItem(conversationItem);
-            if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model)) {
+            if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles)) {
                 return true;
             }
 
@@ -488,14 +539,14 @@
         /**
          * Sets up observation of a specific conversation item to capture its title once available
          */
-        observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model) {
+        observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles) {
             // Initial check
-            if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model)) {
+            if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles)) {
                 return;
             }
 
             STATE.titleObserver = new MutationObserver(() => {
-                this.processTitleMutations(conversationItem, expectedUrl, timestamp, model);
+                this.processTitleMutations(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles);
             });
 
             STATE.titleObserver.observe(conversationItem, {
@@ -509,7 +560,7 @@
         /**
          * Attempts to capture the title and save the history entry if successful
          */
-        attemptTitleCaptureAndSave: function (item, expectedUrl, timestamp, model) {
+        attemptTitleCaptureAndSave: function (item, expectedUrl, timestamp, model, prompt, attachedFiles) {
             // Check if we are still on the page this observer was created for
             if (window.location.href !== expectedUrl) {
                 Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}" while waiting for title. Disconnecting TITLE observer.`);
@@ -520,7 +571,7 @@
             const title = this.extractTitleFromSidebarItem(item);
             Logger.log(`TITLE Check (URL: ${expectedUrl}): Extracted title: "${title}"`);
 
-            return this.processTitleAndAddHistory(title, expectedUrl, timestamp, model);
+            return this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles);
         }
     };
 
@@ -555,8 +606,15 @@
             Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
             STATE.isNewChatPending = true;
             Logger.log("Set isNewChatPending = true");
-            STATE.pendingModelName = ModelDetector.getCurrentModelName(); // Capture model before navigating
+
+            // Capture model, prompt, and files BEFORE navigating or starting observation
+            STATE.pendingModelName = ModelDetector.getCurrentModelName();
+            STATE.pendingPrompt = InputExtractor.getPromptText();
+            STATE.pendingAttachedFiles = InputExtractor.getAttachedFiles();
+
             Logger.log(`Captured pending model name: "${STATE.pendingModelName}"`);
+            Logger.log(`Captured pending prompt: "${STATE.pendingPrompt}"`);
+            Logger.log(`Captured pending files:`, STATE.pendingAttachedFiles);
 
             // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
             setTimeout(() => {
