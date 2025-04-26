@@ -342,6 +342,79 @@
         },
 
         /**
+         * Finds a conversation item in a mutation list
+         */
+        findConversationItemInMutations: function(mutationsList) {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
+                            const conversationItem = node.querySelector('div[data-test-id="conversation"]');
+                            if (conversationItem) {
+                                return conversationItem;
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        },
+
+        /**
+         * Captures context information for a new conversation
+         */
+        captureConversationContext: function() {
+            return {
+                timestamp: Utils.getCurrentJakartaTimestamp(),
+                url: window.location.href,
+                model: STATE.pendingModelName
+            };
+        },
+
+        /**
+         * Handles the processing of mutations for the sidebar observer
+         */
+        processSidebarMutations: function(mutationsList) {
+            Logger.log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
+            const currentUrl = window.location.href;
+            Logger.log(`Current URL inside MAIN observer: ${currentUrl}`);
+
+            if (!Utils.isValidChatUrl(currentUrl)) {
+                Logger.log(`URL "${currentUrl}" does not match the expected chat pattern. Waiting...`);
+                return false; // URL still not a valid chat URL
+            }
+
+            Logger.log("URL check passed (matches chat pattern). Processing mutations to find NEW conversation item...");
+            
+            if (!STATE.isNewChatPending) {
+                Logger.log("No new chat is pending. Ignoring mutations.");
+                return false;
+            }
+            
+            const conversationItem = this.findConversationItemInMutations(mutationsList);
+            if (conversationItem) {
+                Logger.log("Found NEW conversation item container. Preparing to wait for title...");
+                
+                // Capture context before disconnecting observer
+                const context = this.captureConversationContext();
+                
+                // Stage 1 Complete: Found the Item - Disconnect the MAIN observer
+                STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
+                
+                // Clear pending flags
+                STATE.isNewChatPending = false;
+                STATE.pendingModelName = null;
+                Logger.log(`Cleared isNewChatPending flag. Waiting for title associated with URL: ${context.url}`);
+                
+                // Stage 2: Wait for the Title
+                this.observeTitleForItem(conversationItem, context.url, context.timestamp, context.model);
+                return true;
+            }
+            
+            return false;
+        },
+
+        /**
          * Sets up observation of the sidebar to detect new chats
          */
         observeSidebarForNewChat: function () {
@@ -361,46 +434,8 @@
             STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
             STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
 
-            STATE.sidebarObserver = new MutationObserver((mutationsList, mainObserver) => {
-                Logger.log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
-                const currentUrl = window.location.href;
-                Logger.log(`Current URL inside MAIN observer: ${currentUrl}`);
-
-                if (!Utils.isValidChatUrl(currentUrl)) {
-                    Logger.log(`URL "${currentUrl}" does not match the expected chat pattern. Waiting...`);
-                    return; // URL still not a valid chat URL
-                }
-
-                Logger.log("URL check passed (matches chat pattern). Processing mutations to find NEW conversation item...");
-                for (const mutation of mutationsList) {
-                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                        for (const node of mutation.addedNodes) {
-                            if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('conversation-items-container')) {
-                                const conversationItem = node.querySelector('div[data-test-id="conversation"]');
-                                if (conversationItem && STATE.isNewChatPending) {
-                                    Logger.log("Found NEW conversation item container. Preparing to wait for title...");
-
-                                    // Stage 1 Complete: Found the Item - Disconnect the MAIN observer
-                                    STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
-
-                                    // Stage 2: Wait for the Title (Context Capture)
-                                    Logger.log(`Starting TITLE observation process for specific item:`, conversationItem);
-                                    const timestampCaptured = Utils.getCurrentJakartaTimestamp();
-                                    const urlCaptured = currentUrl; // Capture the URL for this chat item
-                                    const modelCaptured = STATE.pendingModelName;
-
-                                    // Clear pending flags
-                                    STATE.isNewChatPending = false;
-                                    STATE.pendingModelName = null;
-                                    Logger.log(`Cleared isNewChatPending flag. Waiting for title associated with URL: ${urlCaptured}`);
-
-                                    this.observeTitleForItem(conversationItem, urlCaptured, timestampCaptured, modelCaptured);
-                                    return; // Stop processing further mutations in the main observer callback
-                                }
-                            }
-                        }
-                    }
-                }
+            STATE.sidebarObserver = new MutationObserver((mutationsList) => {
+                this.processSidebarMutations(mutationsList);
             });
 
             STATE.sidebarObserver.observe(conversationListElement, {
@@ -424,6 +459,27 @@
         },
 
         /**
+         * Process mutations for title changes
+         */
+        processTitleMutations: function(conversationItem, expectedUrl, timestamp, model) {
+            // Abort if URL changed
+            if (window.location.href !== expectedUrl) {
+                Logger.warn("URL changed; disconnecting TITLE observer.");
+                STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
+                return true;
+            }
+            
+            // Extract title and process if found
+            const title = this.extractTitleFromSidebarItem(conversationItem);
+            if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model)) {
+                return true;
+            }
+            
+            Logger.log("No title yet; continuing to observe...");
+            return false;
+        },
+
+        /**
          * Sets up observation of a specific conversation item to capture its title once available
          */
         observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model) {
@@ -433,20 +489,7 @@
             }
 
             STATE.titleObserver = new MutationObserver(() => {
-                // Abort if URL changed
-                if (window.location.href !== expectedUrl) {
-                    Logger.warn("URL changed; disconnecting TITLE observer.");
-                    STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
-                    return;
-                }
-                
-                // Extract title and process if found
-                const title = this.extractTitleFromSidebarItem(conversationItem);
-                if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model)) {
-                    return;
-                }
-                
-                Logger.log("No title yet; continuing to observe...");
+                this.processTitleMutations(conversationItem, expectedUrl, timestamp, model);
             });
 
             STATE.titleObserver.observe(conversationItem, {
@@ -482,35 +525,55 @@
      */
     const EventHandlers = {
         /**
+         * Checks if the target is a valid send button
+         */
+        isSendButton: function(target) {
+            const sendButton = target.closest('button:has(mat-icon[data-mat-icon-name="send"]), button.send-button, button[aria-label*="Send"], button[data-test-id="send-button"]');
+            
+            if (!sendButton) {
+                return false;
+            }
+            
+            if (sendButton.getAttribute('aria-disabled') === 'true') {
+                Logger.log("Send button is disabled. Ignoring click.");
+                return false;
+            }
+            
+            return sendButton;
+        },
+        
+        /**
+         * Prepares for tracking a new chat
+         */
+        prepareNewChatTracking: function() {
+            Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
+            STATE.isNewChatPending = true;
+            Logger.log("Set isNewChatPending = true");
+            STATE.pendingModelName = ModelDetector.getCurrentModelName(); // Capture model before navigating
+            Logger.log(`Captured pending model name: "${STATE.pendingModelName}"`);
+
+            // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
+            setTimeout(() => {
+                Logger.log("Initiating sidebar observation via setTimeout.");
+                DomObserver.observeSidebarForNewChat();
+            }, 50); // Small delay
+        },
+
+        /**
          * Handles clicks on the send button to detect new chats
          */
         handleSendClick: function (event) {
             Logger.log("Click detected on body (capture phase). Target:", event.target);
-            const sendButton = event.target.closest('button:has(mat-icon[data-mat-icon-name="send"]), button.send-button, button[aria-label*="Send"], button[data-test-id="send-button"]');
-
+            const sendButton = this.isSendButton(event.target);
+            
             if (sendButton) {
                 Logger.log("Click target is (or is inside) a potential send button.");
-                if (sendButton.getAttribute('aria-disabled') === 'true') {
-                    Logger.log("Send button is disabled. Ignoring click.");
-                    return;
-                }
-                Logger.log("Send button identified and is enabled.");
                 const currentUrl = window.location.href;
                 Logger.log(`Current URL at time of click: ${currentUrl}`);
 
                 // Check if we are on the main app page (starting a NEW chat)
                 if (currentUrl === CONFIG.BASE_URL) {
-                    Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
-                    STATE.isNewChatPending = true;
-                    Logger.log("Set isNewChatPending = true");
-                    STATE.pendingModelName = ModelDetector.getCurrentModelName(); // Capture model before navigating
-                    Logger.log(`Captured pending model name: "${STATE.pendingModelName}"`);
-
-                    // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
-                    setTimeout(() => {
-                        Logger.log("Initiating sidebar observation via setTimeout.");
-                        DomObserver.observeSidebarForNewChat();
-                    }, 50); // Small delay
+                    this.prepareNewChatTracking();
                 } else {
                     Logger.log("URL does not match GEMINI_APP_URL. Ignoring click for history tracking.");
                 }
@@ -528,7 +591,7 @@
 
         // Attach main click listener
         Logger.log("Attaching main click listener to document body...");
-        document.body.addEventListener('click', EventHandlers.handleSendClick, true); // Use capture phase
+        document.body.addEventListener('click', EventHandlers.handleSendClick.bind(EventHandlers), true); // Use capture phase
 
         // Register menu command for export
         Logger.log("Registering export menu command...");
