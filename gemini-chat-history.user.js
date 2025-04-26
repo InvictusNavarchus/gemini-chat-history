@@ -296,14 +296,14 @@
      */
     const DomObserver = {
         /**
-         * Helper function to disconnect an observer and set it to null
+         * Helper function to disconnect an observer and set its reference to null
          */
-        cleanupObserver: function(observerName) {
-            if (STATE[observerName]) {
-                Logger.log(`Disconnecting ${observerName}.`);
-                STATE[observerName].disconnect();
-                STATE[observerName] = null;
+        cleanupObserver: function(observer) {
+            if (observer) {
+                observer.disconnect();
+                return null;
             }
+            return observer;
         },
 
         /**
@@ -358,8 +358,8 @@
             Logger.log("Found conversation list element. Setting up MAIN sidebar observer...");
 
             // Disconnect previous observers if they exist
-            this.cleanupObserver('sidebarObserver');
-            this.cleanupObserver('titleObserver');
+            STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
+            STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
 
             STATE.sidebarObserver = new MutationObserver((mutationsList, mainObserver) => {
                 Logger.log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
@@ -381,7 +381,7 @@
                                     Logger.log("Found NEW conversation item container. Preparing to wait for title...");
 
                                     // Stage 1 Complete: Found the Item - Disconnect the MAIN observer
-                                    this.cleanupObserver('sidebarObserver');
+                                    STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
 
                                     // Stage 2: Wait for the Title (Context Capture)
                                     Logger.log(`Starting TITLE observation process for specific item:`, conversationItem);
@@ -416,7 +416,7 @@
         processTitleAndAddHistory: function(title, expectedUrl, timestamp, model) {
             if (title) {
                 Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
-                this.cleanupObserver('titleObserver');
+                STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
                 HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model);
                 return true;
             }
@@ -436,7 +436,7 @@
                 // Abort if URL changed
                 if (window.location.href !== expectedUrl) {
                     Logger.warn("URL changed; disconnecting TITLE observer.");
-                    this.cleanupObserver('titleObserver');
+                    STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
                     return;
                 }
                 
@@ -464,7 +464,7 @@
             // Check if we are still on the page this observer was created for
             if (window.location.href !== expectedUrl) {
                 Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}" while waiting for title. Disconnecting TITLE observer.`);
-                this.cleanupObserver('titleObserver');
+                STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
                 return true; // Return true to indicate we should stop trying (observer is disconnected)
             }
 
