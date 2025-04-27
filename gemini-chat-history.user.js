@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.6.0
+// @version      0.7.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -48,6 +48,8 @@
         pendingModelName: null,
         pendingPrompt: null,
         pendingAttachedFiles: [],
+        pendingAccountName: null,
+        pendingAccountEmail: null,
         sidebarObserver: null,
         titleObserver: null
     };
@@ -189,7 +191,7 @@
             const promptElement = document.querySelector('rich-textarea .ql-editor');
             if (promptElement) {
                 const text = promptElement.innerText.trim();
-                
+
                 // Check for triple backticks and truncate if found
                 const backtickIndex = text.indexOf('```');
                 if (backtickIndex !== -1) {
@@ -198,7 +200,7 @@
                     Logger.log(`Extracted prompt text (truncated): "${truncatedText} [attached blockcode]"`);
                     return `${truncatedText} [attached blockcode]`;
                 }
-                
+
                 Logger.log(`Extracted prompt text: "${text}"`);
                 return text;
             } else {
@@ -224,9 +226,44 @@
                 Logger.log("No attached file elements found.");
                 return []; // Return empty array if none found
             }
+        },
+
+        /**
+         * Extracts the user account name and email from the UI.
+         * Returns an object with name and email properties.
+         */
+        getAccountInfo: function () {
+            Logger.log("Attempting to extract account information...");
+            const accountElement = document.querySelector('.gb_B[aria-label^="Google Account:"]');
+
+            if (!accountElement) {
+                Logger.warn("Could not find account element. Returning unknown values.");
+                return { name: 'Unknown', email: 'Unknown' };
+            }
+
+            try {
+                const ariaLabel = accountElement.getAttribute('aria-label');
+                Logger.log(`Found aria-label: ${ariaLabel}`);
+
+                // Extract name and email using regex
+                // Format: "Google Account: [Name] ([Email])"
+                const match = ariaLabel.match(/Google Account: (.*?)\s+\((.*?)\)/);
+
+                if (match && match.length === 3) {
+                    const name = match[1].trim();
+                    const email = match[2].trim();
+                    Logger.log(`Extracted account info - Name: "${name}", Email: "${email}"`);
+                    return { name, email };
+                } else {
+                    Logger.warn(`Could not parse account information from: "${ariaLabel}"`);
+                    return { name: 'Unknown', email: 'Unknown' };
+                }
+            } catch (e) {
+                Logger.error("Error extracting account information:", e);
+                return { name: 'Unknown', email: 'Unknown' };
+            }
         }
     };
-
 
     /**
      * ==========================================
@@ -275,8 +312,17 @@
         /**
          * Adds a new entry to the chat history
          */
-        addHistoryEntry: function (timestamp, url, title, model, prompt, attachedFiles) {
-            const entryData = { timestamp, url, title, model, prompt, attachedFiles };
+        addHistoryEntry: function (timestamp, url, title, model, prompt, attachedFiles, accountName, accountEmail) {
+            const entryData = {
+                timestamp,
+                url,
+                title,
+                model,
+                prompt,
+                attachedFiles,
+                accountName,
+                accountEmail
+            };
             Logger.log("Attempting to add history entry:", entryData);
 
             // Basic validation (Title, URL, Timestamp, Model are still required)
@@ -344,7 +390,7 @@
                 alert("Gemini History: An error occurred during export. Check the console (F12).");
             }
         },
-        
+
         /**
          * Views history as JSON in a new browser tab
          */
@@ -362,10 +408,10 @@
                 const jsonString = JSON.stringify(history, null, 2); // Pretty print
                 const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
-                
+
                 // Open in new tab instead of downloading
                 window.open(url, '_blank');
-                
+
                 // Revoke the Blob URL after a longer delay (user might need time to view)
                 setTimeout(() => {
                     URL.revokeObjectURL(url);
@@ -459,12 +505,16 @@
          * Captures context information for a new conversation
          */
         captureConversationContext: function () {
+            const accountInfo = InputExtractor.getAccountInfo();
+
             return {
                 timestamp: Utils.getCurrentJakartaTimestamp(),
                 url: window.location.href,
                 model: STATE.pendingModelName,
                 prompt: STATE.pendingPrompt,
-                attachedFiles: STATE.pendingAttachedFiles
+                attachedFiles: STATE.pendingAttachedFiles,
+                accountName: accountInfo.name,
+                accountEmail: accountInfo.email
             };
         },
 
@@ -503,10 +553,12 @@
                 STATE.pendingModelName = null;
                 STATE.pendingPrompt = null;
                 STATE.pendingAttachedFiles = [];
+                STATE.pendingAccountName = null;
+                STATE.pendingAccountEmail = null;
                 Logger.log(`Cleared pending flags. Waiting for title associated with URL: ${context.url}`);
 
                 // Stage 2: Wait for the Title
-                this.observeTitleForItem(conversationItem, context.url, context.timestamp, context.model, context.prompt, context.attachedFiles);
+                this.observeTitleForItem(conversationItem, context.url, context.timestamp, context.model, context.prompt, context.attachedFiles, context.accountName, context.accountEmail);
                 return true;
             }
 
@@ -526,6 +578,8 @@
                 STATE.pendingModelName = null;
                 STATE.pendingPrompt = null;
                 STATE.pendingAttachedFiles = [];
+                STATE.pendingAccountName = null;
+                STATE.pendingAccountEmail = null;
                 return;
             }
 
@@ -549,11 +603,11 @@
         /**
          * Helper function to process title and add history entry
          */
-        processTitleAndAddHistory: function (title, expectedUrl, timestamp, model, prompt, attachedFiles) {
+        processTitleAndAddHistory: function (title, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             if (title) {
                 Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
                 STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
-                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model, prompt, attachedFiles);
+                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model, prompt, attachedFiles, accountName, accountEmail);
                 return true;
             }
             return false;
@@ -562,7 +616,7 @@
         /**
          * Process mutations for title changes
          */
-        processTitleMutations: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles) {
+        processTitleMutations: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Abort if URL changed
             if (window.location.href !== expectedUrl) {
                 Logger.warn("URL changed; disconnecting TITLE observer.");
@@ -572,7 +626,7 @@
 
             // Extract title and process if found
             const title = this.extractTitleFromSidebarItem(conversationItem);
-            if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles)) {
+            if (this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail)) {
                 return true;
             }
 
@@ -583,14 +637,14 @@
         /**
          * Sets up observation of a specific conversation item to capture its title once available
          */
-        observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles) {
+        observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Initial check
-            if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles)) {
+            if (this.attemptTitleCaptureAndSave(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail)) {
                 return;
             }
 
             STATE.titleObserver = new MutationObserver(() => {
-                this.processTitleMutations(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles);
+                this.processTitleMutations(conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail);
             });
 
             STATE.titleObserver.observe(conversationItem, {
@@ -604,7 +658,7 @@
         /**
          * Attempts to capture the title and save the history entry if successful
          */
-        attemptTitleCaptureAndSave: function (item, expectedUrl, timestamp, model, prompt, attachedFiles) {
+        attemptTitleCaptureAndSave: function (item, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Check if we are still on the page this observer was created for
             if (window.location.href !== expectedUrl) {
                 Logger.warn(`URL changed from "${expectedUrl}" to "${window.location.href}" while waiting for title. Disconnecting TITLE observer.`);
@@ -615,7 +669,7 @@
             const title = this.extractTitleFromSidebarItem(item);
             Logger.log(`TITLE Check (URL: ${expectedUrl}): Extracted title: "${title}"`);
 
-            return this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles);
+            return this.processTitleAndAddHistory(title, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail);
         }
     };
 
@@ -656,9 +710,16 @@
             STATE.pendingPrompt = InputExtractor.getPromptText();
             STATE.pendingAttachedFiles = InputExtractor.getAttachedFiles();
 
+            // Capture account information
+            const accountInfo = InputExtractor.getAccountInfo();
+            STATE.pendingAccountName = accountInfo.name;
+            STATE.pendingAccountEmail = accountInfo.email;
+
             Logger.log(`Captured pending model name: "${STATE.pendingModelName}"`);
             Logger.log(`Captured pending prompt: "${STATE.pendingPrompt}"`);
             Logger.log(`Captured pending files:`, STATE.pendingAttachedFiles);
+            Logger.log(`Captured account name: "${STATE.pendingAccountName}"`);
+            Logger.log(`Captured account email: "${STATE.pendingAccountEmail}"`);
 
             // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
             setTimeout(() => {
