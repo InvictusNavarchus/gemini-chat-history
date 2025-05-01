@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https:///raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.7.0
+// @version      0.8.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -11,6 +11,7 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_addStyle
 // @require      https://cdn.jsdelivr.net/npm/@violentmonkey/dom@2 // For VM.observe
 // ==/UserScript==
 
@@ -36,6 +37,261 @@
         '2.5 Pro': '2.5 Pro',
         'Deep Research': 'Deep Research',
         // Add more specific model names as they appear in the UI
+    };
+
+    /**
+     * ==========================================
+     * STATUS INDICATOR MODULE
+     * ==========================================
+     */
+    const StatusIndicator = {
+        element: null,
+        timeout: null,
+        DEFAULT_AUTO_HIDE: 3000, // Auto-hide after 3 seconds by default
+
+        /**
+         * Initializes the status indicator element
+         */
+        init: function() {
+            // Add CSS styles
+            this.addStyles();
+            
+            // Create the indicator element
+            const indicator = document.createElement('div');
+            indicator.id = 'gemini-history-status';
+            indicator.className = 'gemini-history-status hidden';
+            
+            // Create inner elements for icon and message
+            const iconContainer = document.createElement('div');
+            iconContainer.className = 'status-icon';
+            
+            const messageContainer = document.createElement('div');
+            messageContainer.className = 'status-message';
+            
+            // Append elements
+            indicator.appendChild(iconContainer);
+            indicator.appendChild(messageContainer);
+            document.body.appendChild(indicator);
+            
+            this.element = indicator;
+            Logger.log("Status indicator initialized");
+        },
+        
+        /**
+         * Adds CSS styles for the status indicator
+         */
+        addStyles: function() {
+            GM_addStyle(`
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+                
+                @keyframes fadeOut {
+                    from { opacity: 1; transform: translateY(0); }
+                    to { opacity: 0; transform: translateY(10px); }
+                }
+                
+                @keyframes pulse {
+                    0% { transform: scale(0.95); }
+                    50% { transform: scale(1.05); }
+                    100% { transform: scale(0.95); }
+                }
+                
+                .gemini-history-status {
+                    position: fixed;
+                    bottom: 20px;
+                    right: 20px;
+                    background-color: rgba(36, 36, 36, 0.9);
+                    color: white;
+                    border-radius: 8px;
+                    padding: 12px 16px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                    z-index: 9999;
+                    font-family: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+                    font-size: 14px;
+                    max-width: 320px;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid rgba(255, 255, 255, 0.1);
+                    animation: fadeIn 0.3s ease-out forwards;
+                    transition: background-color 0.3s ease;
+                }
+                
+                .gemini-history-status.hidden {
+                    animation: fadeOut 0.3s ease-in forwards;
+                    pointer-events: none;
+                }
+                
+                .status-icon {
+                    width: 24px;
+                    height: 24px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    position: relative;
+                }
+                
+                .status-icon::before {
+                    content: '';
+                    position: absolute;
+                    width: 16px;
+                    height: 16px;
+                    background-position: center;
+                    background-repeat: no-repeat;
+                    background-size: contain;
+                }
+                
+                .status-message {
+                    flex-grow: 1;
+                    line-height: 1.4;
+                }
+                
+                .gemini-history-status.info {
+                    background-color: rgba(25, 118, 210, 0.9);
+                }
+                
+                .gemini-history-status.info .status-icon {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+                
+                .gemini-history-status.info .status-icon::before {
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/%3E%3C/svg%3E");
+                }
+                
+                .gemini-history-status.success {
+                    background-color: rgba(46, 125, 50, 0.9);
+                }
+                
+                .gemini-history-status.success .status-icon {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+                
+                .gemini-history-status.success .status-icon::before {
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E");
+                }
+                
+                .gemini-history-status.warning {
+                    background-color: rgba(237, 108, 2, 0.9);
+                }
+                
+                .gemini-history-status.warning .status-icon {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+                
+                .gemini-history-status.warning .status-icon::before {
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'/%3E%3C/svg%3E");
+                }
+                
+                .gemini-history-status.error {
+                    background-color: rgba(211, 47, 47, 0.9);
+                }
+                
+                .gemini-history-status.error .status-icon {
+                    background-color: rgba(255, 255, 255, 0.2);
+                }
+                
+                .gemini-history-status.error .status-icon::before {
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z'/%3E%3C/svg%3E");
+                }
+                
+                .gemini-history-status.loading .status-icon {
+                    background-color: rgba(255, 255, 255, 0.2);
+                    animation: pulse 1.5s ease-in-out infinite;
+                }
+                
+                .gemini-history-status.loading .status-icon::before {
+                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 4V2C6.48 2 2 6.48 2 12h2c0-4.42 3.58-8 8-8zm0 16c-4.42 0-8-3.58-8-8H2c0 5.52 4.48 10 10 10v-2zm0-14c-3.31 0-6 2.69-6 6h2c0-2.21 1.79-4 4-4V6z'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='1.5s' repeatCount='indefinite' /%3E%3C/path%3E%3C/svg%3E");
+                }
+            `);
+        },
+        
+        /**
+         * Shows the status indicator with a message
+         * @param {string} message - The message to display
+         * @param {string} type - Type of status (info, success, warning, error, loading)
+         * @param {number} autoHide - Time in ms after which to hide the indicator, or 0 to stay visible
+         */
+        show: function(message, type = 'info', autoHide = this.DEFAULT_AUTO_HIDE) {
+            if (!this.element) {
+                this.init();
+            }
+            
+            // Clear any existing timeout
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+                this.timeout = null;
+            }
+            
+            // Remove hidden class and set message
+            this.element.classList.remove('hidden', 'info', 'success', 'warning', 'error', 'loading');
+            this.element.classList.add(type);
+            
+            const messageEl = this.element.querySelector('.status-message');
+            if (messageEl) {
+                messageEl.textContent = message;
+            }
+            
+            // Auto-hide after specified delay if greater than 0
+            if (autoHide > 0) {
+                this.timeout = setTimeout(() => {
+                    this.hide();
+                }, autoHide);
+            }
+            
+            return this;
+        },
+        
+        /**
+         * Updates the message and type of an existing indicator
+         */
+        update: function(message, type = null, autoHide = this.DEFAULT_AUTO_HIDE) {
+            if (!this.element) return this;
+            
+            // Update message
+            const messageEl = this.element.querySelector('.status-message');
+            if (messageEl) {
+                messageEl.textContent = message;
+            }
+            
+            // Update type if specified
+            if (type) {
+                this.element.classList.remove('info', 'success', 'warning', 'error', 'loading');
+                this.element.classList.add(type);
+            }
+            
+            // Reset auto-hide timeout
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+                this.timeout = null;
+            }
+            
+            if (autoHide > 0) {
+                this.timeout = setTimeout(() => {
+                    this.hide();
+                }, autoHide);
+            }
+            
+            return this;
+        },
+        
+        /**
+         * Hides the status indicator
+         */
+        hide: function() {
+            if (!this.element) return;
+            
+            this.element.classList.add('hidden');
+            
+            if (this.timeout) {
+                clearTimeout(this.timeout);
+                this.timeout = null;
+            }
+        }
     };
 
     /**
@@ -288,6 +544,7 @@
                 }
             } catch (e) {
                 Logger.error("Error parsing stored history:", e, "Stored data was:", storedData);
+                StatusIndicator.show("Error loading chat history", "error");
                 return []; // Return empty array on error
             }
         },
@@ -299,6 +556,7 @@
             Logger.log(`Attempting to save history with ${history.length} entries...`);
             if (!Array.isArray(history)) {
                 Logger.error("Attempted to save non-array data. Aborting save.");
+                StatusIndicator.show("Error saving history data", "error");
                 return;
             }
             try {
@@ -306,6 +564,7 @@
                 Logger.log("History saved successfully.");
             } catch (e) {
                 Logger.error("Error saving history:", e);
+                StatusIndicator.show("Error saving chat history", "error");
             }
         },
 
@@ -328,12 +587,14 @@
             // Basic validation (Title, URL, Timestamp, Model are still required)
             if (!timestamp || !url || !title || !model) {
                 Logger.warn("Attempted to add entry with missing essential data. Skipping.", entryData);
+                StatusIndicator.show("Chat history entry incomplete", "warning");
                 return false; // Indicate failure
             }
 
             // Prevent adding entry if URL is invalid
             if (!Utils.isValidChatUrl(url)) {
                 Logger.warn(`Attempted to add entry with invalid chat URL pattern "${url}". Skipping.`);
+                StatusIndicator.show("Invalid chat URL", "warning");
                 return false; // Indicate failure
             }
 
@@ -342,12 +603,14 @@
             // Prevent duplicates based on URL
             if (history.some(entry => entry.url === url)) {
                 Logger.log("Duplicate URL detected, skipping entry:", url);
+                StatusIndicator.show("Chat already in history", "info");
                 return false; // Indicate failure (or already added)
             }
 
             history.unshift(entryData); // Add to beginning
             this.saveHistory(history);
             Logger.log("Successfully added history entry.");
+            StatusIndicator.show(`Chat "${title}" saved to history`, "success");
             return true; // Indicate success
         },
 
@@ -356,9 +619,12 @@
          */
         exportToJson: function () {
             Logger.log("Export command triggered.");
+            StatusIndicator.show("Preparing history export...", "loading", 0);
+            
             const history = this.loadHistory();
             if (history.length === 0) {
                 Logger.warn("No history found to export.");
+                StatusIndicator.show("No history found to export", "warning");
                 alert("Gemini History: No history found to export.");
                 return;
             }
@@ -376,9 +642,13 @@
                 link.setAttribute("download", filename);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
+                
+                StatusIndicator.update(`Exporting ${history.length} chat entries...`, "loading");
                 link.click();
+                
                 document.body.removeChild(link);
                 Logger.log(`Download initiated for file: ${filename}`);
+                StatusIndicator.update(`${history.length} chats exported successfully`, "success");
 
                 // Revoke the Blob URL after a short delay
                 setTimeout(() => {
@@ -387,6 +657,7 @@
                 }, 1000);
             } catch (e) {
                 Logger.error("Error during JSON export process:", e);
+                StatusIndicator.show("Export failed", "error");
                 alert("Gemini History: An error occurred during export. Check the console (F12).");
             }
         },
@@ -396,9 +667,12 @@
          */
         viewHistoryJson: function () {
             Logger.log("View JSON command triggered.");
+            StatusIndicator.show("Opening history view...", "loading", 0);
+            
             const history = this.loadHistory();
             if (history.length === 0) {
                 Logger.warn("No history found to view.");
+                StatusIndicator.show("No history found to view", "warning");
                 alert("Gemini History: No history found to view.");
                 return;
             }
@@ -411,6 +685,7 @@
 
                 // Open in new tab instead of downloading
                 window.open(url, '_blank');
+                StatusIndicator.update(`Viewing ${history.length} chat entries`, "success");
 
                 // Revoke the Blob URL after a longer delay (user might need time to view)
                 setTimeout(() => {
@@ -419,6 +694,7 @@
                 }, 60000); // 1 minute delay to ensure user has time to view
             } catch (e) {
                 Logger.error("Error during JSON view process:", e);
+                StatusIndicator.show("Failed to view history", "error");
                 alert("Gemini History: An error occurred while viewing JSON. Check the console (F12).");
             }
         }
@@ -541,6 +817,7 @@
             const conversationItem = this.findConversationItemInMutations(mutationsList);
             if (conversationItem) {
                 Logger.log("Found NEW conversation item container. Preparing to wait for title...");
+                StatusIndicator.show("New chat detected, capturing details...", "loading", 0);
 
                 // Capture context before disconnecting observer
                 const context = this.captureConversationContext();
@@ -574,6 +851,7 @@
 
             if (!conversationListElement) {
                 Logger.warn(`Could not find conversation list element ("${targetSelector}") to observe. Aborting observation setup.`);
+                StatusIndicator.show("Could not track chat (UI element not found)", "warning");
                 STATE.isNewChatPending = false; // Reset flag
                 STATE.pendingModelName = null;
                 STATE.pendingPrompt = null;
@@ -584,6 +862,7 @@
             }
 
             Logger.log("Found conversation list element. Setting up MAIN sidebar observer...");
+            StatusIndicator.show("Tracking new chat...", "info");
 
             // Disconnect previous observers if they exist
             STATE.sidebarObserver = this.cleanupObserver(STATE.sidebarObserver);
@@ -606,8 +885,18 @@
         processTitleAndAddHistory: function (title, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             if (title) {
                 Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
+                StatusIndicator.update(`Found chat title: "${title}"`, "success", 0);
                 STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
-                HistoryManager.addHistoryEntry(timestamp, expectedUrl, title, model, prompt, attachedFiles, accountName, accountEmail);
+                
+                const success = HistoryManager.addHistoryEntry(
+                    timestamp, expectedUrl, title, model, prompt, 
+                    attachedFiles, accountName, accountEmail
+                );
+                
+                if (!success) {
+                    StatusIndicator.update("Chat not saved (already exists or invalid)", "info");
+                }
+                
                 return true;
             }
             return false;
@@ -704,6 +993,8 @@
             Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
             STATE.isNewChatPending = true;
             Logger.log("Set isNewChatPending = true");
+            
+            StatusIndicator.show("Preparing to track new chat...", "loading", 0);
 
             // Capture model, prompt, and files BEFORE navigating or starting observation
             STATE.pendingModelName = ModelDetector.getCurrentModelName();
@@ -720,6 +1011,8 @@
             Logger.log(`Captured pending files:`, STATE.pendingAttachedFiles);
             Logger.log(`Captured account name: "${STATE.pendingAccountName}"`);
             Logger.log(`Captured account email: "${STATE.pendingAccountEmail}"`);
+            
+            StatusIndicator.update(`Capturing chat with ${STATE.pendingModelName}...`, "info");
 
             // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
             setTimeout(() => {
@@ -757,6 +1050,10 @@
      */
     function init() {
         Logger.log("Gemini History Manager initializing...");
+
+        // Initialize status indicator
+        StatusIndicator.init();
+        StatusIndicator.show("Gemini History Manager active", "info");
 
         // Attach main click listener
         Logger.log("Attaching main click listener to document body...");
