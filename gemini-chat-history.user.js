@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.8.0
+// @version      0.8.1
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -369,6 +369,14 @@
         isValidChatUrl: function (url) {
             const chatUrlPattern = /^https:\/\/gemini\.google\.com\/app\/[a-f0-9]+$/;
             return chatUrlPattern.test(url);
+        },
+        
+        /**
+         * Determines if a URL is the base Gemini app URL (with potential parameters)
+         */
+        isBaseAppUrl: function (url) {
+            // Check if URL starts with base URL, followed by end of string or a question mark (for parameters)
+            return url === CONFIG.BASE_URL || url.startsWith(CONFIG.BASE_URL + '?');
         }
     };
 
@@ -1034,7 +1042,7 @@
                 Logger.log(`Current URL at time of click: ${currentUrl}`);
 
                 // Check if we are on the main app page (starting a NEW chat)
-                if (currentUrl === CONFIG.BASE_URL) {
+                if (Utils.isBaseAppUrl(currentUrl)) {
                     this.prepareNewChatTracking();
                 } else {
                     Logger.log("URL does not match GEMINI_APP_URL. Ignoring click for history tracking.");
