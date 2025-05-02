@@ -142,4 +142,4 @@ The script stores chat history locally using your userscript manager's storage.
 
 ## 📜 License
 
-GPLv3.0
+Licensed under GPLv3.0
