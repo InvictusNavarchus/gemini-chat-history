@@ -140,12 +140,6 @@ The script stores chat history locally using your userscript manager's storage.
 
 ---
 
-## 👋 Contributing
-
-Contributions (bug reports, feature requests, pull requests) are welcome! Please check the repository's issue tracker and contribution guidelines (if available).
-
----
-
 ## 📜 License
 
-[Specify License Here - e.g., MIT License] or "See LICENSE file."
+GPLv3.0
