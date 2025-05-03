@@ -24,6 +24,7 @@ A userscript designed to automatically track Google Gemini chat sessions initiat
 * **Status Indicator:** Displays transient visual feedback (saving, exporting, errors) in the bottom-right corner. 💬
 * **Duplicate Prevention:** Avoids adding entries with the same chat URL. ✅
 * **Robust Detection:** Attempts multiple UI selectors to find the model name, title, etc.
+* **Resilient Initialization:** Monitors for sidebar availability before becoming fully active.
 
 ---
 
@@ -31,28 +32,29 @@ A userscript designed to automatically track Google Gemini chat sessions initiat
 
 The script operates through a sequence of event listening and DOM observation:
 
-1.  **Event Listening:** Attaches a click listener to `document.body` (capture phase).
-2.  **Send Button Identification:** On click, checks if the target is the "Send" button on the base `https://gemini.google.com/app` URL (indicating a *new* chat). Ignores disabled buttons.
-3.  **Pre-Navigation Data Capture:** If a new chat is detected, *immediately* captures:
+1.  **Initialization & Sidebar Detection:** On startup, monitors the DOM for the presence of the conversations sidebar before declaring itself fully active.
+2.  **Event Listening:** Attaches a click listener to `document.body` (capture phase).
+3.  **Send Button Identification:** On click, checks if the target is the "Send" button on the base `https://gemini.google.com/app` URL (indicating a *new* chat). Ignores disabled buttons.
+4.  **Pre-Navigation Data Capture:** If a new chat is detected, *immediately* captures:
     * Selected Gemini model (`ModelDetector.getCurrentModelName()`)
     * Prompt text (`InputExtractor.getPromptText()`)
     * Attached filenames (`InputExtractor.getAttachedFiles()`)
     * Account info (`InputExtractor.getAccountInfo()`)
     * Sets an internal flag (`STATE.isNewChatPending`).
-4.  **Sidebar Observation:** Initiates a `MutationObserver` (`DomObserver.observeSidebarForNewChat`) targeting the chat list sidebar (`conversations-list[data-test-id="all-conversations"]`).
-5.  **New Chat Item Detection:** Waits for a new `div[data-test-id="conversation"]` to appear in the sidebar *after* the browser navigates to the new chat's unique URL. Verifies the URL pattern.
-6.  **Context Finalization:** Once the item appears and URL is confirmed:
+5.  **Sidebar Observation:** Initiates a `MutationObserver` (`DomObserver.observeSidebarForNewChat`) targeting the chat list sidebar (`conversations-list[data-test-id="all-conversations"]`).
+6.  **New Chat Item Detection:** Waits for a new `div[data-test-id="conversation"]` to appear in the sidebar *after* the browser navigates to the new chat's unique URL. Verifies the URL pattern.
+7.  **Context Finalization:** Once the item appears and URL is confirmed:
     * Records the current timestamp (`Utils.getCurrentJakartaTimestamp()`).
     * Captures the final chat `url` (`window.location.href`).
     * Disconnects the main sidebar observer.
-7.  **Title Observation:** Attaches a *second* `MutationObserver` (`DomObserver.observeTitleForItem`) to the specific new sidebar item, monitoring it for changes (waiting for the title to be populated asynchronously).
-8.  **Title Extraction & Storage:** When the title observer detects a relevant change:
+8.  **Title Observation:** Attaches a *second* `MutationObserver` (`DomObserver.observeTitleForItem`) to the specific new sidebar item, monitoring it for changes (waiting for the title to be populated asynchronously).
+9.  **Title Extraction & Storage:** When the title observer detects a relevant change:
     * Extracts the title text (`DomObserver.extractTitleFromSidebarItem`).
     * If successful and URL still matches, disconnects the title observer.
     * Constructs the complete history entry object.
     * Calls `HistoryManager.addHistoryEntry` to save the entry via `GM_setValue` (checking for duplicates).
     * Shows a success message via the status indicator. ✅
-9.  **Export/View:** Menu commands retrieve history via `GM_getValue`, serialize to JSON, create a Blob, and trigger a download or open a new tab.
+10.  **Export/View:** Menu commands retrieve history via `GM_getValue`, serialize to JSON, create a Blob, and trigger a download or open a new tab.
 
 ---
 
