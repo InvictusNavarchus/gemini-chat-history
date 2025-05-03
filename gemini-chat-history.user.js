@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.8.1
+// @version      0.9.0
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -726,6 +726,55 @@
         },
 
         /**
+         * Watches for the sidebar element to appear in the DOM
+         * @param {function} callback Function to call once the sidebar is found
+         */
+        watchForSidebar: function(callback) {
+            Logger.log("Starting to watch for sidebar element...");
+            StatusIndicator.show("Initializing...", "loading", 0);
+            
+            // First check if the sidebar already exists
+            const sidebarSelector = 'conversations-list[data-test-id="all-conversations"]';
+            const existingSidebar = document.querySelector(sidebarSelector);
+            
+            if (existingSidebar) {
+                Logger.log("Sidebar already exists in DOM");
+                callback(existingSidebar);
+                return;
+            }
+            
+            // If not, set up an observer to watch for it
+            Logger.log("Sidebar not found. Setting up observer to watch for it...");
+            
+            const observer = new MutationObserver((mutations, obs) => {
+                const sidebar = document.querySelector(sidebarSelector);
+                if (sidebar) {
+                    Logger.log("Sidebar element found in DOM");
+                    obs.disconnect(); // Stop observing once found
+                    callback(sidebar);
+                }
+            });
+            
+            // Start observing document body for the sidebar element
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true
+            });
+            
+            // Set a timeout for the case when the sidebar doesn't appear
+            setTimeout(() => {
+                if (observer) {
+                    const sidebar = document.querySelector(sidebarSelector);
+                    if (!sidebar) {
+                        Logger.warn("Sidebar element not found after timeout");
+                        StatusIndicator.show("Gemini History Manager active (sidebar not detected)", "warning");
+                    }
+                    observer.disconnect();
+                }
+            }, 10000); // 10 second timeout
+        },
+
+        /**
          * Extracts the title from a sidebar conversation item
          */
         extractTitleFromSidebarItem: function (conversationItem) {
@@ -1061,7 +1110,13 @@
 
         // Initialize status indicator
         StatusIndicator.init();
-        StatusIndicator.show("Gemini History Manager active", "info");
+        StatusIndicator.show("Initializing Gemini History Manager...", "info");
+
+        // Watch for sidebar to appear before showing ready status
+        DomObserver.watchForSidebar((sidebar) => {
+            Logger.log("Sidebar confirmed available. Manager fully active.");
+            StatusIndicator.show("Gemini History Manager active", "success");
+        });
 
         // Attach main click listener
         Logger.log("Attaching main click listener to document body...");
