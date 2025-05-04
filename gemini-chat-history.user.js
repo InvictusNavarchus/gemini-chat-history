@@ -15,6 +15,10 @@
 // @require      https://cdn.jsdelivr.net/npm/@violentmonkey/dom@2 // For VM.observe
 // ==/UserScript==
 
+/**
+ * Main script function that contains all the logic for the Gemini Chat History Manager.
+ * Uses IIFE pattern to avoid polluting the global namespace.
+ */
 (function () {
     'use strict';
 
@@ -50,7 +54,8 @@
         DEFAULT_AUTO_HIDE: 3000, // Auto-hide after 3 seconds by default
 
         /**
-         * Initializes the status indicator element
+         * Initializes the status indicator element in the DOM.
+         * Creates the HTML structure and applies styles for the indicator.
          */
         init: function() {
             // Add CSS styles
@@ -78,7 +83,8 @@
         },
         
         /**
-         * Adds CSS styles for the status indicator
+         * Adds CSS styles for the status indicator to the document.
+         * Includes animations, colors, and responsive styling.
          */
         addStyles: function() {
             GM_addStyle(`
@@ -211,10 +217,12 @@
         },
         
         /**
-         * Shows the status indicator with a message
-         * @param {string} message - The message to display
-         * @param {string} type - Type of status (info, success, warning, error, loading)
+         * Shows the status indicator with a message.
+         * 
+         * @param {string} message - The message to display in the indicator
+         * @param {string} type - Type of status: 'info', 'success', 'warning', 'error', or 'loading'
          * @param {number} autoHide - Time in ms after which to hide the indicator, or 0 to stay visible
+         * @returns {Object} - Returns the StatusIndicator instance for chaining
          */
         show: function(message, type = 'info', autoHide = this.DEFAULT_AUTO_HIDE) {
             if (!this.element) {
@@ -247,7 +255,13 @@
         },
         
         /**
-         * Updates the message and type of an existing indicator
+         * Updates the message and type of an existing indicator.
+         * Resets auto-hide timeout if specified.
+         * 
+         * @param {string} message - The new message to display
+         * @param {string|null} type - New type of status, or null to keep current type
+         * @param {number} autoHide - Time in ms after which to hide the indicator, or 0 to stay visible
+         * @returns {Object} - Returns the StatusIndicator instance for chaining
          */
         update: function(message, type = null, autoHide = this.DEFAULT_AUTO_HIDE) {
             if (!this.element) return this;
@@ -280,7 +294,8 @@
         },
         
         /**
-         * Hides the status indicator
+         * Hides the status indicator by adding the 'hidden' class.
+         * Clears any existing timeout.
          */
         hide: function() {
             if (!this.element) return;
@@ -316,8 +331,25 @@
      * ==========================================
      */
     const Logger = {
+        /**
+         * Logs a standard message to the console with the script's prefix.
+         * 
+         * @param {...*} args - Arguments to log
+         */
         log: (...args) => console.log(CONFIG.LOG_PREFIX, ...args),
+        
+        /**
+         * Logs a warning message to the console with the script's prefix.
+         * 
+         * @param {...*} args - Arguments to log as warning
+         */
         warn: (...args) => console.warn(CONFIG.LOG_PREFIX, ...args),
+        
+        /**
+         * Logs an error message to the console with the script's prefix.
+         * 
+         * @param {...*} args - Arguments to log as error
+         */
         error: (...args) => console.error(CONFIG.LOG_PREFIX, ...args)
     };
 
@@ -328,7 +360,10 @@
      */
     const Utils = {
         /**
-         * Gets current timestamp in Jakarta timezone
+         * Gets the current timestamp formatted according to the configured timezone.
+         * Uses Intl.DateTimeFormat for proper timezone handling.
+         * 
+         * @returns {string} - Formatted timestamp string in ISO-like format (YYYY-MM-DDTHH:MM:SS)
          */
         getCurrentJakartaTimestamp: function () {
             try {
@@ -364,7 +399,11 @@
         },
 
         /**
-         * Determines if a URL is a valid Gemini chat URL
+         * Determines if a URL is a valid Gemini chat URL.
+         * Valid URLs follow the pattern: https://gemini.google.com/app/[hexadecimal-id]
+         * 
+         * @param {string} url - The URL to check
+         * @returns {boolean} - True if the URL matches the expected pattern for a Gemini chat
          */
         isValidChatUrl: function (url) {
             const chatUrlPattern = /^https:\/\/gemini\.google\.com\/app\/[a-f0-9]+$/;
@@ -372,7 +411,11 @@
         },
         
         /**
-         * Determines if a URL is the base Gemini app URL (with potential parameters)
+         * Determines if a URL is the base Gemini app URL (with potential parameters).
+         * The base URL is used for starting new chats.
+         * 
+         * @param {string} url - The URL to check
+         * @returns {boolean} - True if the URL is the base app URL (with or without parameters)
          */
         isBaseAppUrl: function (url) {
             // Check if URL starts with base URL, followed by end of string or a question mark (for parameters)
@@ -387,7 +430,10 @@
      */
     const ModelDetector = {
         /**
-         * Attempts to detect the currently selected Gemini model
+         * Attempts to detect the currently selected Gemini model from the UI.
+         * Tries multiple selector strategies to find the model name.
+         * 
+         * @returns {string} - The detected model name or 'Unknown' if not found
          */
         getCurrentModelName: function () {
             Logger.log("Attempting to get current model name...");
@@ -450,6 +496,8 @@
          * Extracts the prompt text from the input area.
          * If the prompt contains code blocks delimited by triple backticks,
          * it will be truncated and a placeholder will be added.
+         * 
+         * @returns {string} - The extracted prompt text or empty string if not found
          */
         getPromptText: function () {
             const promptElement = document.querySelector('rich-textarea .ql-editor');
@@ -474,8 +522,9 @@
         },
 
         /**
-         * Extracts the filenames of attached files.
-         * Returns an array of filenames (strings).
+         * Extracts the filenames of attached files from the UI.
+         * 
+         * @returns {string[]} - Array of filenames (strings) or empty array if none found
          */
         getAttachedFiles: function () {
             const fileElements = document.querySelectorAll('uploader-file-preview-container .file-preview [data-test-id="file-name"]');
@@ -494,7 +543,8 @@
 
         /**
          * Extracts the user account name and email from the UI.
-         * Returns an object with name and email properties.
+         * 
+         * @returns {Object} - Object with name and email properties
          */
         getAccountInfo: function () {
             Logger.log("Attempting to extract account information...");
@@ -536,7 +586,9 @@
      */
     const HistoryManager = {
         /**
-         * Loads chat history from storage
+         * Loads chat history from GM storage.
+         * 
+         * @returns {Array} - Array of history entries or empty array if none found or on error
          */
         loadHistory: function () {
             Logger.log("Loading history from storage...");
@@ -558,7 +610,9 @@
         },
 
         /**
-         * Saves chat history to storage
+         * Saves chat history to GM storage.
+         * 
+         * @param {Array} history - Array of history entries to save
          */
         saveHistory: function (history) {
             Logger.log(`Attempting to save history with ${history.length} entries...`);
@@ -577,7 +631,18 @@
         },
 
         /**
-         * Adds a new entry to the chat history
+         * Adds a new entry to the chat history.
+         * Validates input data and prevents duplicates based on URL.
+         * 
+         * @param {string} timestamp - ISO-formatted timestamp for the chat
+         * @param {string} url - URL of the chat
+         * @param {string} title - Title of the chat
+         * @param {string} model - Model name used for the chat
+         * @param {string} prompt - User prompt text
+         * @param {Array} attachedFiles - Array of attached filenames
+         * @param {string} accountName - Name of the user account
+         * @param {string} accountEmail - Email of the user account
+         * @returns {boolean} - True if entry was added, false if validation failed or duplicate detected
          */
         addHistoryEntry: function (timestamp, url, title, model, prompt, attachedFiles, accountName, accountEmail) {
             const entryData = {
@@ -623,7 +688,8 @@
         },
 
         /**
-         * Exports history to JSON file for download
+         * Exports history to JSON file for download.
+         * Creates a downloadable file with the history data.
          */
         exportToJson: function () {
             Logger.log("Export command triggered.");
@@ -671,7 +737,8 @@
         },
 
         /**
-         * Views history as JSON in a new browser tab
+         * Views history as JSON in a new browser tab.
+         * Opens a new tab with the JSON data for viewing.
          */
         viewHistoryJson: function () {
             Logger.log("View JSON command triggered.");
@@ -715,7 +782,10 @@
      */
     const DomObserver = {
         /**
-         * Helper function to disconnect an observer and set its reference to null
+         * Helper function to disconnect an observer and set its reference to null.
+         * 
+         * @param {MutationObserver} observer - The observer to disconnect
+         * @returns {null} - Always returns null to clear the reference
          */
         cleanupObserver: function (observer) {
             if (observer) {
@@ -726,8 +796,10 @@
         },
 
         /**
-         * Watches for the sidebar element to appear in the DOM
-         * @param {function} callback Function to call once the sidebar is found
+         * Watches for the sidebar element to appear in the DOM.
+         * Calls the provided callback once the sidebar is found.
+         * 
+         * @param {function} callback - Function to call once the sidebar is found
          */
         watchForSidebar: function(callback) {
             Logger.log("Starting to watch for sidebar element...");
@@ -776,7 +848,10 @@
         },
 
         /**
-         * Extracts the title from a sidebar conversation item
+         * Extracts the title from a sidebar conversation item.
+         * 
+         * @param {Element} conversationItem - The DOM element representing a conversation item
+         * @returns {string|null} - The extracted title or null if not found
          */
         extractTitleFromSidebarItem: function (conversationItem) {
             Logger.log("Attempting to extract title from sidebar item:", conversationItem);
@@ -817,7 +892,10 @@
         },
 
         /**
-         * Finds a conversation item in a mutation list
+         * Finds a conversation item in a mutation list.
+         * 
+         * @param {MutationRecord[]} mutationsList - List of mutation records from MutationObserver
+         * @returns {Element|null} - The found conversation item element or null if not found
          */
         findConversationItemInMutations: function (mutationsList) {
             for (const mutation of mutationsList) {
@@ -836,7 +914,10 @@
         },
 
         /**
-         * Captures context information for a new conversation
+         * Captures context information for a new conversation.
+         * Retrieves current state information to associate with a new chat.
+         * 
+         * @returns {Object} - Object containing context details for the conversation
          */
         captureConversationContext: function () {
             const accountInfo = InputExtractor.getAccountInfo();
@@ -853,7 +934,10 @@
         },
 
         /**
-         * Handles the processing of mutations for the sidebar observer
+         * Handles the processing of mutations for the sidebar observer.
+         * 
+         * @param {MutationRecord[]} mutationsList - List of mutation records from MutationObserver
+         * @returns {boolean} - True if processing was completed, false otherwise
          */
         processSidebarMutations: function (mutationsList) {
             Logger.log(`MAIN Sidebar Observer Callback Triggered. ${mutationsList.length} mutations.`);
@@ -901,7 +985,7 @@
         },
 
         /**
-         * Sets up observation of the sidebar to detect new chats
+         * Sets up observation of the sidebar to detect new chats.
          */
         observeSidebarForNewChat: function () {
             const targetSelector = 'conversations-list[data-test-id="all-conversations"]';
@@ -938,7 +1022,17 @@
         },
 
         /**
-         * Helper function to process title and add history entry
+         * Helper function to process title and add history entry.
+         * 
+         * @param {string} title - The extracted title
+         * @param {string} expectedUrl - The URL associated with this conversation
+         * @param {string} timestamp - ISO-formatted timestamp for the chat
+         * @param {string} model - Model name used for the chat
+         * @param {string} prompt - User prompt text
+         * @param {Array} attachedFiles - Array of attached filenames
+         * @param {string} accountName - Name of the user account
+         * @param {string} accountEmail - Email of the user account
+         * @returns {boolean} - True if title was found and entry was added, false otherwise
          */
         processTitleAndAddHistory: function (title, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             if (title) {
@@ -961,7 +1055,17 @@
         },
 
         /**
-         * Process mutations for title changes
+         * Process mutations for title changes.
+         * 
+         * @param {Element} conversationItem - The conversation item DOM element
+         * @param {string} expectedUrl - The URL associated with this conversation
+         * @param {string} timestamp - ISO-formatted timestamp for the chat
+         * @param {string} model - Model name used for the chat
+         * @param {string} prompt - User prompt text
+         * @param {Array} attachedFiles - Array of attached filenames
+         * @param {string} accountName - Name of the user account
+         * @param {string} accountEmail - Email of the user account
+         * @returns {boolean} - True if processing completed (URL changed or title found), false otherwise
          */
         processTitleMutations: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Abort if URL changed
@@ -982,7 +1086,16 @@
         },
 
         /**
-         * Sets up observation of a specific conversation item to capture its title once available
+         * Sets up observation of a specific conversation item to capture its title once available.
+         * 
+         * @param {Element} conversationItem - The conversation item DOM element
+         * @param {string} expectedUrl - The URL associated with this conversation
+         * @param {string} timestamp - ISO-formatted timestamp for the chat
+         * @param {string} model - Model name used for the chat
+         * @param {string} prompt - User prompt text
+         * @param {Array} attachedFiles - Array of attached filenames
+         * @param {string} accountName - Name of the user account
+         * @param {string} accountEmail - Email of the user account
          */
         observeTitleForItem: function (conversationItem, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Initial check
@@ -1003,7 +1116,17 @@
         },
 
         /**
-         * Attempts to capture the title and save the history entry if successful
+         * Attempts to capture the title and save the history entry if successful.
+         * 
+         * @param {Element} item - The conversation item DOM element
+         * @param {string} expectedUrl - The URL associated with this conversation
+         * @param {string} timestamp - ISO-formatted timestamp for the chat
+         * @param {string} model - Model name used for the chat
+         * @param {string} prompt - User prompt text
+         * @param {Array} attachedFiles - Array of attached filenames
+         * @param {string} accountName - Name of the user account
+         * @param {string} accountEmail - Email of the user account
+         * @returns {boolean} - True if title was found and entry was added, false otherwise
          */
         attemptTitleCaptureAndSave: function (item, expectedUrl, timestamp, model, prompt, attachedFiles, accountName, accountEmail) {
             // Check if we are still on the page this observer was created for
@@ -1027,7 +1150,10 @@
      */
     const EventHandlers = {
         /**
-         * Checks if the target is a valid send button
+         * Checks if the target is a valid send button.
+         * 
+         * @param {Element} target - The DOM element that was clicked
+         * @returns {Element|false} - The send button element if found and valid, false otherwise
          */
         isSendButton: function (target) {
             const sendButton = target.closest('button:has(mat-icon[data-mat-icon-name="send"]), button.send-button, button[aria-label*="Send"], button[data-test-id="send-button"]');
@@ -1045,7 +1171,8 @@
         },
 
         /**
-         * Prepares for tracking a new chat
+         * Prepares for tracking a new chat.
+         * Captures necessary information before the chat is created.
          */
         prepareNewChatTracking: function () {
             Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
@@ -1080,7 +1207,10 @@
         },
 
         /**
-         * Handles clicks on the send button to detect new chats
+         * Handles clicks on the send button to detect new chats.
+         * Uses capture phase to intercept clicks before they're processed.
+         * 
+         * @param {Event} event - The click event
          */
         handleSendClick: function (event) {
             Logger.log("Click detected on body (capture phase). Target:", event.target);
@@ -1105,6 +1235,11 @@
      * ==========================================
      * INITIALIZATION
      * ==========================================
+     */
+    
+    /**
+     * Initializes the script.
+     * Sets up observers, event listeners, and menu commands.
      */
     function init() {
         Logger.log("Gemini History Manager initializing...");
