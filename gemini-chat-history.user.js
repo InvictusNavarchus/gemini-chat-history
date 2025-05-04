@@ -3,7 +3,7 @@
 // @namespace    https://github.com/InvictusNavarchus/gemini-chat-history
 // @downloadURL  https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
 // @updateURL    https://raw.githubusercontent.com/InvictusNavarchus/gemini-chat-history/master/gemini-chat-history.user.js
-// @version      0.9.0
+// @version      0.9.1
 // @description  Tracks Gemini chat history (Timestamp, URL, Title, Model, Prompt, Files) and allows exporting to JSON
 // @author       Invictus
 // @match        https://gemini.google.com/*
@@ -731,7 +731,8 @@
          */
         watchForSidebar: function(callback) {
             Logger.log("Starting to watch for sidebar element...");
-            StatusIndicator.show("Initializing...", "loading", 0);
+            // Show immediate loading status at the beginning
+            StatusIndicator.show("Looking for Gemini sidebar...", "loading", 0);
             
             // First check if the sidebar already exists
             const sidebarSelector = 'conversations-list[data-test-id="all-conversations"]';
@@ -767,7 +768,7 @@
                     const sidebar = document.querySelector(sidebarSelector);
                     if (!sidebar) {
                         Logger.warn("Sidebar element not found after timeout");
-                        StatusIndicator.show("Gemini History Manager active (sidebar not detected)", "warning");
+                        StatusIndicator.show("Warning: Gemini sidebar not detected", "warning", 0);
                     }
                     observer.disconnect();
                 }
@@ -1110,8 +1111,10 @@
 
         // Initialize status indicator
         StatusIndicator.init();
-        StatusIndicator.show("Initializing Gemini History Manager...", "info");
-
+        
+        // Show immediate status message that persists until sidebar is found (or timeout)
+        StatusIndicator.show("Waiting for Gemini sidebar to appear...", "loading", 0);
+        
         // Watch for sidebar to appear before showing ready status
         DomObserver.watchForSidebar((sidebar) => {
             Logger.log("Sidebar confirmed available. Manager fully active.");
