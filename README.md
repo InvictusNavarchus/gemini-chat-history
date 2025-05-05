@@ -1,6 +1,7 @@
 # ✨ Gemini Chat History Manager ✨
 
-**Version:** `0.8.1`
+![Userscript Version](https://img.shields.io/badge/version-0.8.1-blue?style=flat-square)
+![GPLv3 Badge](https://img.shields.io/badge/license-GPLv3-blue)
 
 A userscript designed to automatically track Google Gemini chat sessions initiated from the base application URL. It locally stores metadata associated with each new chat and provides options for exporting this data.
 
