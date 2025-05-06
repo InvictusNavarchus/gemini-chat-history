@@ -57,36 +57,36 @@
          * Initializes the status indicator element in the DOM.
          * Creates the HTML structure and applies styles for the indicator.
          */
-        init: function() {
+        init: function () {
             // Add CSS styles
             this.addStyles();
-            
+
             // Create the indicator element
             const indicator = document.createElement('div');
             indicator.id = 'gemini-history-status';
             indicator.className = 'gemini-history-status hidden';
-            
+
             // Create inner elements for icon and message
             const iconContainer = document.createElement('div');
             iconContainer.className = 'status-icon';
-            
+
             const messageContainer = document.createElement('div');
             messageContainer.className = 'status-message';
-            
+
             // Append elements
             indicator.appendChild(iconContainer);
             indicator.appendChild(messageContainer);
             document.body.appendChild(indicator);
-            
+
             this.element = indicator;
             Logger.log("Status indicator initialized");
         },
-        
+
         /**
          * Adds CSS styles for the status indicator to the document.
          * Includes animations, colors, and responsive styling.
          */
-        addStyles: function() {
+        addStyles: function () {
             GM_addStyle(`
                 @keyframes fadeIn {
                     from { opacity: 0; transform: translateY(10px); }
@@ -215,7 +215,7 @@
                 }
             `);
         },
-        
+
         /**
          * Shows the status indicator with a message.
          * 
@@ -224,36 +224,36 @@
          * @param {number} autoHide - Time in ms after which to hide the indicator, or 0 to stay visible
          * @returns {Object} - Returns the StatusIndicator instance for chaining
          */
-        show: function(message, type = 'info', autoHide = this.DEFAULT_AUTO_HIDE) {
+        show: function (message, type = 'info', autoHide = this.DEFAULT_AUTO_HIDE) {
             if (!this.element) {
                 this.init();
             }
-            
+
             // Clear any existing timeout
             if (this.timeout) {
                 clearTimeout(this.timeout);
                 this.timeout = null;
             }
-            
+
             // Remove hidden class and set message
             this.element.classList.remove('hidden', 'info', 'success', 'warning', 'error', 'loading');
             this.element.classList.add(type);
-            
+
             const messageEl = this.element.querySelector('.status-message');
             if (messageEl) {
                 messageEl.textContent = message;
             }
-            
+
             // Auto-hide after specified delay if greater than 0
             if (autoHide > 0) {
                 this.timeout = setTimeout(() => {
                     this.hide();
                 }, autoHide);
             }
-            
+
             return this;
         },
-        
+
         /**
          * Updates the message and type of an existing indicator.
          * Resets auto-hide timeout if specified.
@@ -263,45 +263,45 @@
          * @param {number} autoHide - Time in ms after which to hide the indicator, or 0 to stay visible
          * @returns {Object} - Returns the StatusIndicator instance for chaining
          */
-        update: function(message, type = null, autoHide = this.DEFAULT_AUTO_HIDE) {
+        update: function (message, type = null, autoHide = this.DEFAULT_AUTO_HIDE) {
             if (!this.element) return this;
-            
+
             // Update message
             const messageEl = this.element.querySelector('.status-message');
             if (messageEl) {
                 messageEl.textContent = message;
             }
-            
+
             // Update type if specified
             if (type) {
                 this.element.classList.remove('info', 'success', 'warning', 'error', 'loading');
                 this.element.classList.add(type);
             }
-            
+
             // Reset auto-hide timeout
             if (this.timeout) {
                 clearTimeout(this.timeout);
                 this.timeout = null;
             }
-            
+
             if (autoHide > 0) {
                 this.timeout = setTimeout(() => {
                     this.hide();
                 }, autoHide);
             }
-            
+
             return this;
         },
-        
+
         /**
          * Hides the status indicator by adding the 'hidden' class.
          * Clears any existing timeout.
          */
-        hide: function() {
+        hide: function () {
             if (!this.element) return;
-            
+
             this.element.classList.add('hidden');
-            
+
             if (this.timeout) {
                 clearTimeout(this.timeout);
                 this.timeout = null;
@@ -337,14 +337,14 @@
          * @param {...*} args - Arguments to log
          */
         log: (...args) => console.log(CONFIG.LOG_PREFIX, ...args),
-        
+
         /**
          * Logs a warning message to the console with the script's prefix.
          * 
          * @param {...*} args - Arguments to log as warning
          */
         warn: (...args) => console.warn(CONFIG.LOG_PREFIX, ...args),
-        
+
         /**
          * Logs an error message to the console with the script's prefix.
          * 
@@ -409,7 +409,7 @@
             const chatUrlPattern = /^https:\/\/gemini\.google\.com\/app\/[a-f0-9]+$/;
             return chatUrlPattern.test(url);
         },
-        
+
         /**
          * Determines if a URL is the base Gemini app URL (with potential parameters).
          * The base URL is used for starting new chats.
@@ -694,7 +694,7 @@
         exportToJson: function () {
             Logger.log("Export command triggered.");
             StatusIndicator.show("Preparing history export...", "loading", 0);
-            
+
             const history = this.loadHistory();
             if (history.length === 0) {
                 Logger.warn("No history found to export.");
@@ -716,10 +716,10 @@
                 link.setAttribute("download", filename);
                 link.style.visibility = 'hidden';
                 document.body.appendChild(link);
-                
+
                 StatusIndicator.update(`Exporting ${history.length} chat entries...`, "loading");
                 link.click();
-                
+
                 document.body.removeChild(link);
                 Logger.log(`Download initiated for file: ${filename}`);
                 StatusIndicator.update(`${history.length} chats exported successfully`, "success");
@@ -743,7 +743,7 @@
         viewHistoryJson: function () {
             Logger.log("View JSON command triggered.");
             StatusIndicator.show("Opening history view...", "loading", 0);
-            
+
             const history = this.loadHistory();
             if (history.length === 0) {
                 Logger.warn("No history found to view.");
@@ -801,24 +801,24 @@
          * 
          * @param {function} callback - Function to call once the sidebar is found
          */
-        watchForSidebar: function(callback) {
+        watchForSidebar: function (callback) {
             Logger.log("Starting to watch for sidebar element...");
             // Show immediate loading status at the beginning
             StatusIndicator.show("Looking for Gemini sidebar...", "loading", 0);
-            
+
             // First check if the sidebar already exists
             const sidebarSelector = 'conversations-list[data-test-id="all-conversations"]';
             const existingSidebar = document.querySelector(sidebarSelector);
-            
+
             if (existingSidebar) {
                 Logger.log("Sidebar already exists in DOM");
                 callback(existingSidebar);
                 return;
             }
-            
+
             // If not, set up an observer to watch for it
             Logger.log("Sidebar not found. Setting up observer to watch for it...");
-            
+
             const observer = new MutationObserver((mutations, obs) => {
                 const sidebar = document.querySelector(sidebarSelector);
                 if (sidebar) {
@@ -827,13 +827,13 @@
                     callback(sidebar);
                 }
             });
-            
+
             // Start observing document body for the sidebar element
             observer.observe(document.body, {
                 childList: true,
                 subtree: true
             });
-            
+
             // Set a timeout for the case when the sidebar doesn't appear
             setTimeout(() => {
                 if (observer) {
@@ -1039,16 +1039,16 @@
                 Logger.log(`Title found for ${expectedUrl}! Attempting to add history entry.`);
                 StatusIndicator.update(`Found chat title: "${title}"`, "success", 0);
                 STATE.titleObserver = this.cleanupObserver(STATE.titleObserver);
-                
+
                 const success = HistoryManager.addHistoryEntry(
-                    timestamp, expectedUrl, title, model, prompt, 
+                    timestamp, expectedUrl, title, model, prompt,
                     attachedFiles, accountName, accountEmail
                 );
-                
+
                 if (!success) {
                     StatusIndicator.update("Chat not saved (already exists or invalid)", "info");
                 }
-                
+
                 return true;
             }
             return false;
@@ -1178,7 +1178,7 @@
             Logger.log("URL matches GEMINI_APP_URL. This is potentially a new chat.");
             STATE.isNewChatPending = true;
             Logger.log("Set isNewChatPending = true");
-            
+
             StatusIndicator.show("Preparing to track new chat...", "loading", 0);
 
             // Capture model, prompt, and files BEFORE navigating or starting observation
@@ -1196,7 +1196,7 @@
             Logger.log(`Captured pending files:`, STATE.pendingAttachedFiles);
             Logger.log(`Captured account name: "${STATE.pendingAccountName}"`);
             Logger.log(`Captured account email: "${STATE.pendingAccountEmail}"`);
-            
+
             StatusIndicator.update(`Capturing chat with ${STATE.pendingModelName}...`, "info");
 
             // Use setTimeout to ensure observation starts after the click event potentially triggers initial DOM changes
@@ -1236,7 +1236,7 @@
      * INITIALIZATION
      * ==========================================
      */
-    
+
     /**
      * Initializes the script.
      * Sets up observers, event listeners, and menu commands.
@@ -1246,10 +1246,10 @@
 
         // Initialize status indicator
         StatusIndicator.init();
-        
+
         // Show immediate status message that persists until sidebar is found (or timeout)
         StatusIndicator.show("Waiting for Gemini sidebar to appear...", "loading", 0);
-        
+
         // Watch for sidebar to appear before showing ready status
         DomObserver.watchForSidebar((sidebar) => {
             Logger.log("Sidebar confirmed available. Manager fully active.");
