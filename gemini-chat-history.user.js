@@ -88,130 +88,130 @@
          */
         addStyles: function () {
             GM_addStyle(`
-                @keyframes fadeIn {
-                    from { opacity: 0; transform: translateY(10px); }
-                    to { opacity: 1; transform: translateY(0); }
-                }
-                
-                @keyframes fadeOut {
-                    from { opacity: 1; transform: translateY(0); }
-                    to { opacity: 0; transform: translateY(10px); }
-                }
-                
-                @keyframes pulse {
-                    0% { transform: scale(0.95); }
-                    50% { transform: scale(1.05); }
-                    100% { transform: scale(0.95); }
-                }
-                
                 .gemini-history-status {
                     position: fixed;
                     bottom: 20px;
                     right: 20px;
-                    background-color: rgba(36, 36, 36, 0.9);
-                    color: white;
-                    border-radius: 8px;
-                    padding: 12px 16px;
                     display: flex;
                     align-items: center;
-                    gap: 12px;
-                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-                    z-index: 9999;
-                    font-family: 'Google Sans', 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+                    background: #1a1c25;
+                    color: white;
+                    padding: 10px 15px;
+                    border-radius: 4px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: 14px;
-                    max-width: 320px;
-                    backdrop-filter: blur(4px);
-                    border: 1px solid rgba(255, 255, 255, 0.1);
-                    animation: fadeIn 0.3s ease-out forwards;
-                    transition: background-color 0.3s ease;
+                    z-index: 10000;
+                    transition: opacity 0.3s, transform 0.3s;
+                    opacity: 1;
+                    transform: translateY(0);
                 }
-                
+
                 .gemini-history-status.hidden {
-                    animation: fadeOut 0.3s ease-in forwards;
+                    opacity: 0;
+                    transform: translateY(10px);
                     pointer-events: none;
                 }
-                
+
                 .status-icon {
-                    width: 24px;
-                    height: 24px;
-                    border-radius: 50%;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    flex-shrink: 0;
+                    width: 20px;
+                    height: 20px;
+                    margin-right: 10px;
                     position: relative;
                 }
-                
-                .status-icon::before {
+
+                .status-icon::before,
+                .status-icon::after {
                     content: '';
                     position: absolute;
+                }
+
+                /* Info icon */
+                .info .status-icon::before {
+                    width: 20px;
+                    height: 20px;
+                    background: #3498db;
+                    border-radius: 50%;
+                }
+
+                .info .status-icon::after {
+                    content: 'i';
+                    color: white;
+                    font-style: italic;
+                    font-weight: bold;
+                    font-family: serif;
+                    font-size: 14px;
+                    left: 8px;
+                    top: 0px;
+                }
+
+                /* Success icon */
+                .success .status-icon::before {
+                    width: 20px;
+                    height: 20px;
+                    background: #2ecc71;
+                    border-radius: 50%;
+                }
+
+                .success .status-icon::after {
+                    width: 6px;
+                    height: 12px;
+                    border-right: 2px solid white;
+                    border-bottom: 2px solid white;
+                    transform: rotate(45deg);
+                    left: 7px;
+                    top: 2px;
+                }
+
+                /* Warning icon */
+                .warning .status-icon::before {
+                    width: 0;
+                    height: 0;
+                    border-left: 10px solid transparent;
+                    border-right: 10px solid transparent;
+                    border-bottom: 18px solid #f39c12;
+                    top: 1px;
+                }
+
+                .warning .status-icon::after {
+                    content: '!';
+                    color: white;
+                    font-weight: bold;
+                    font-size: 14px;
+                    left: 8px;
+                    top: 4px;
+                }
+
+                /* Error icon */
+                .error .status-icon::before {
+                    width: 20px;
+                    height: 20px;
+                    background: #e74c3c;
+                    border-radius: 50%;
+                }
+
+                .error .status-icon::after {
+                    content: '✕';
+                    color: white;
+                    font-size: 14px;
+                    left: 5px;
+                    top: 0px;
+                }
+
+                /* Loading icon */
+                .loading .status-icon::before {
                     width: 16px;
                     height: 16px;
-                    background-position: center;
-                    background-repeat: no-repeat;
-                    background-size: contain;
+                    border: 2px solid #ccc;
+                    border-top-color: #6e41e2;
+                    border-radius: 50%;
+                    left: 1px;
+                    top: 1px;
+                    animation: gemini-history-spin 0.8s linear infinite;
                 }
-                
-                .status-message {
-                    flex-grow: 1;
-                    line-height: 1.4;
-                }
-                
-                .gemini-history-status.info {
-                    background-color: rgba(25, 118, 210, 0.9);
-                }
-                
-                .gemini-history-status.info .status-icon {
-                    background-color: rgba(255, 255, 255, 0.2);
-                }
-                
-                .gemini-history-status.info .status-icon::before {
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'/%3E%3C/svg%3E");
-                }
-                
-                .gemini-history-status.success {
-                    background-color: rgba(46, 125, 50, 0.9);
-                }
-                
-                .gemini-history-status.success .status-icon {
-                    background-color: rgba(255, 255, 255, 0.2);
-                }
-                
-                .gemini-history-status.success .status-icon::before {
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z'/%3E%3C/svg%3E");
-                }
-                
-                .gemini-history-status.warning {
-                    background-color: rgba(237, 108, 2, 0.9);
-                }
-                
-                .gemini-history-status.warning .status-icon {
-                    background-color: rgba(255, 255, 255, 0.2);
-                }
-                
-                .gemini-history-status.warning .status-icon::before {
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z'/%3E%3C/svg%3E");
-                }
-                
-                .gemini-history-status.error {
-                    background-color: rgba(211, 47, 47, 0.9);
-                }
-                
-                .gemini-history-status.error .status-icon {
-                    background-color: rgba(255, 255, 255, 0.2);
-                }
-                
-                .gemini-history-status.error .status-icon::before {
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z'/%3E%3C/svg%3E");
-                }
-                
-                .gemini-history-status.loading .status-icon {
-                    background-color: rgba(255, 255, 255, 0.2);
-                    animation: pulse 1.5s ease-in-out infinite;
-                }
-                
-                .gemini-history-status.loading .status-icon::before {
-                    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 4V2C6.48 2 2 6.48 2 12h2c0-4.42 3.58-8 8-8zm0 16c-4.42 0-8-3.58-8-8H2c0 5.52 4.48 10 10 10v-2zm0-14c-3.31 0-6 2.69-6 6h2c0-2.21 1.79-4 4-4V6z'%3E%3CanimateTransform attributeName='transform' type='rotate' from='0 12 12' to='360 12 12' dur='1.5s' repeatCount='indefinite' /%3E%3C/path%3E%3C/svg%3E");
+
+                @keyframes gemini-history-spin {
+                    to { transform: rotate(360deg); }
                 }
             `);
         },
